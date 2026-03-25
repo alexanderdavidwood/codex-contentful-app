@@ -1,0 +1,52 @@
+{
+  "name": "Codex Builder",
+  "description": "Private Contentful app for creating and modifying managed Contentful apps with a Codex-backed backend.",
+  "locations": [
+    "App configuration",
+    "Page"
+  ],
+  "frontend": {
+    "supportedHosting": [
+      "Public URL",
+      "Contentful app hosting"
+    ],
+    "publicUrl": "https://replace-with-your-static-site.onrender.com",
+    "bundleDirectory": "apps/contentful-app/dist"
+  },
+  "installationParameters": [
+    {
+      "id": "apiBaseUrl",
+      "label": "API base URL",
+      "required": true,
+      "example": "https://replace-with-your-api.onrender.com"
+    },
+    {
+      "id": "tenantId",
+      "label": "Tenant ID",
+      "required": true,
+      "example": "internal-demo"
+    },
+    {
+      "id": "githubInstallationId",
+      "label": "GitHub installation ID",
+      "required": false
+    },
+    {
+      "id": "openAiSecretRef",
+      "label": "OpenAI secret reference",
+      "required": false
+    },
+    {
+      "id": "previewTarget",
+      "label": "Preview target",
+      "required": true,
+      "example": "contentful-preview"
+    },
+    {
+      "id": "productionTarget",
+      "label": "Production target",
+      "required": true,
+      "example": "contentful-production"
+    }
+  ]
+}

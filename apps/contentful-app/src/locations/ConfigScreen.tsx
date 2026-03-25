@@ -64,7 +64,7 @@ export function ConfigScreen() {
       </div>
 
       <Note variant="primary">
-        Stage 1 uses a Render-compatible backend shape. Keep secrets server-side and point the app at the API.
+        Stage 1 uses a Render-compatible backend shape. Keep secrets server-side and point the app at the public API URL.
       </Note>
 
       <FormControl>
@@ -78,6 +78,9 @@ export function ConfigScreen() {
             }))
           }
         />
+        <FormControl.HelpText>
+          Use the deployed API URL, for example `https://your-api.onrender.com`.
+        </FormControl.HelpText>
       </FormControl>
 
       <FormControl>
@@ -117,6 +120,9 @@ export function ConfigScreen() {
             }))
           }
         />
+        <FormControl.HelpText>
+          The deployed API itself still needs `OPENAI_API_KEY` configured server-side for Codex execution.
+        </FormControl.HelpText>
       </FormControl>
 
       <FormControl>

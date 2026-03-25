@@ -14,6 +14,7 @@ import type {
 import { config } from "../config.js";
 import type { RunnerAdapter } from "../runners/runnerAdapter.js";
 import type { Store } from "../storage/store.js";
+import { createRedactor } from "../utils/redaction.js";
 
 type RunEventPayload =
   | { type: "status"; runId: string; payload: string }
@@ -36,6 +37,7 @@ function runCommand(command: string, args: string[], cwd: string): Promise<strin
 
 export class RunCoordinator {
   private readonly streams = new Map<string, EventEmitter>();
+  private readonly redact = createRedactor(config.secretRedactionValues);
 
   constructor(private readonly store: Store, private readonly runner: RunnerAdapter) {}
 
@@ -102,7 +104,7 @@ export class RunCoordinator {
     stream.emit("event", { type: "status", runId, payload: "running" } satisfies RunEventPayload);
 
     handle.events.on("event", async (event) => {
-      const line = JSON.stringify(event);
+      const line = this.redact(JSON.stringify(event));
       run.artifactBundle.runLogs.push(line);
       run.updatedAt = new Date().toISOString();
       await this.store.updateRun(run);
@@ -110,28 +112,32 @@ export class RunCoordinator {
     });
 
     handle.events.on("stderr", async (line) => {
-      run.artifactBundle.runLogs.push(line);
+      const sanitizedLine = this.redact(line);
+      run.artifactBundle.runLogs.push(sanitizedLine);
       run.updatedAt = new Date().toISOString();
       await this.store.updateRun(run);
-      stream.emit("event", { type: "log", runId, payload: line } satisfies RunEventPayload);
+      stream.emit("event", { type: "log", runId, payload: sanitizedLine } satisfies RunEventPayload);
     });
 
     handle.events.on("error", async (error: Error) => {
       run.status = "failed";
       run.updatedAt = new Date().toISOString();
-      run.artifactBundle.runLogs.push(error.message);
+      const errorMessage = this.redact(error.message);
+      run.artifactBundle.runLogs.push(errorMessage);
       await this.store.updateRun(run);
-      stream.emit("event", { type: "error", runId, payload: error.message } satisfies RunEventPayload);
+      stream.emit("event", { type: "error", runId, payload: errorMessage } satisfies RunEventPayload);
     });
 
     handle.events.on("finished", async ({ code, lastMessage, stderr }: { code: number; lastMessage: string; stderr: string }) => {
       run.status = code === 0 ? "succeeded" : "failed";
       run.updatedAt = new Date().toISOString();
-      run.artifactBundle.implementationSpec = lastMessage;
+      run.artifactBundle.implementationSpec = this.redact(lastMessage);
       run.artifactBundle.codexVersion = await runCommand(config.codexBin, ["--version"], project.workspacePath);
-      run.artifactBundle.gitDiff = await runCommand("git", ["diff", "--no-ext-diff"], project.workspacePath);
+      run.artifactBundle.gitDiff = this.redact(
+        await runCommand("git", ["diff", "--no-ext-diff"], project.workspacePath),
+      );
       if (stderr) {
-        run.artifactBundle.runLogs.push(stderr);
+        run.artifactBundle.runLogs.push(this.redact(stderr));
       }
       run.artifactBundle.scanResults = await this.createScanResults(project);
       await this.store.updateRun(run);

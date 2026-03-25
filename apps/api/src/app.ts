@@ -26,14 +26,27 @@ export async function createApp() {
   await store.init();
 
   const app = express();
-  app.use(cors());
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin || config.corsOrigins.length === 0 || config.corsOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error("Origin is not allowed by CORS."));
+      },
+    }),
+  );
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/health", (_request, response) => {
     response.json({
       ok: true,
       apiBaseUrl: config.defaultApiBaseUrl,
+      environment: config.nodeEnv,
       storage: config.databaseUrl ? "postgres" : "memory",
+      corsOrigins: config.corsOrigins,
       runnerCapabilities: runner.getCapabilities(),
     });
   });
@@ -141,6 +154,12 @@ export async function createApp() {
     response.status(202).json({
       accepted: true,
       event: request.header("x-github-event") ?? "unknown",
+    });
+  });
+
+  app.use((error: Error, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    response.status(500).json({
+      error: error.message,
     });
   });
 

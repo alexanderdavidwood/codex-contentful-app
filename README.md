@@ -6,12 +6,21 @@ This repository implements the stage-1 MVP from the plan:
 - a Node API compatible with a Render-style single-service deployment
 - a shared contract package for the builder UI, backend, and managed project manifest
 - an `openai/codex`-backed runner adapter that can execute batch runs today and exposes an interactive session bridge for later work
+- Render deployment assets for a testable next-stage deploy
 
 ## Workspaces
 
 - `apps/api` - MVP backend with SSE run streaming and Postgres-ready storage
 - `apps/contentful-app` - Contentful builder UI
 - `packages/shared` - contracts, schemas, and manifest helpers
+
+## Deployment assets
+
+- `render.yaml` - Render blueprint for the MVP API, static site, and free Postgres database
+- `apps/api/Dockerfile` - Docker image that installs `@openai/codex` and boots the API service
+- `apps/contentful-app/contentful-private-app.template.json` - source-of-truth install metadata for manual Contentful app setup
+- `docs/deploy-render.md` - Render deployment walkthrough
+- `docs/install-contentful.md` - Contentful installation walkthrough
 
 ## Local development
 
@@ -30,6 +39,8 @@ npm run dev:app
 - `CODEX_BIN` - optional path to the `codex` binary
 - `CODEX_MODEL` - optional model override for batch runs
 - `MANAGED_PROJECT_ROOT` - optional filesystem root for generated managed projects
+- `CORS_ORIGIN` - optional comma-separated allowlist of browser origins for deployed frontends
+- `OPENAI_API_KEY` - required for headless or deployed Codex usage
 
 ### Contentful app
 
@@ -41,3 +52,4 @@ npm run dev:app
 - Managed projects are created locally on disk under `.runtime/projects`.
 - Dependency and secret scanning are represented in the artifact model, but only basic file-diff inspection is implemented in stage 1.
 - The interactive `codex app-server` bridge is present behind the runner abstraction, but the UI currently uses the simpler batch-run path.
+- Render free-tier deployment is suitable only for smoke testing and internal demos.
