@@ -2,6 +2,8 @@
 
 This repository includes a stage-1 Render blueprint in `render.yaml`.
 
+The blueprint explicitly disables Render preview environments because Hobby workspaces do not support them.
+
 ## What gets created
 
 - `codex-contentful-app-api` as a free Docker web service
