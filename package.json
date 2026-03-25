@@ -1,0 +1,16 @@
+{
+  "name": "codex-powered-contentful-app-builder",
+  "private": true,
+  "version": "0.0.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev:api": "npm run dev --workspace @codex-builder/api",
+    "dev:app": "npm run dev --workspace @codex-builder/contentful-app",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces"
+  }
+}
