@@ -13,6 +13,8 @@ npm run build --workspace @codex-builder/contentful-app
 
 The resulting bundle is in `apps/contentful-app/dist` and includes `index.html` at the root, which is required for Contentful app hosting.
 
+If you open the deployed frontend outside Contentful, it now shows a standalone landing page instead of a blank screen. That page is only a deployment check; the real app UI appears once Contentful loads it inside an iframe.
+
 ## Create the private app definition
 
 In your Contentful organization settings:
