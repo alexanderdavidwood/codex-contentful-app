@@ -43,6 +43,9 @@ services:
         name: Cache-Control
         value: no-cache
       - path: /*
+        name: Content-Security-Policy
+        value: frame-ancestors 'self' https://app.contentful.com https://app.eu.contentful.com
+      - path: /*
         name: Referrer-Policy
         value: strict-origin-when-cross-origin
 

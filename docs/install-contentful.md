@@ -15,6 +15,8 @@ The resulting bundle is in `apps/contentful-app/dist` and includes `index.html` 
 
 If you open the deployed frontend outside Contentful, it now shows a standalone landing page instead of a blank screen. That page is only a deployment check; the real app UI appears once Contentful loads it inside an iframe.
 
+When hosting the frontend on Render, keep the Render static-site headers aligned with Contentful embedding. The included `render.yaml` sets `Content-Security-Policy: frame-ancestors` for `https://app.contentful.com` and `https://app.eu.contentful.com`.
+
 ## Create the private app definition
 
 In your Contentful organization settings:
