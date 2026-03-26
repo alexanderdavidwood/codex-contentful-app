@@ -9,7 +9,7 @@
     "dev": "vite",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/**/*.test.ts",
-    "upload": "npm run build && npx @contentful/app-scripts upload --bundle-dir dist"
+    "upload": "npm run build && node ./scripts/uploadHostedBundle.mjs"
   },
   "dependencies": {
     "@codex-builder/shared": "*",

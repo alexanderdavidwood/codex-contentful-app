@@ -26,10 +26,17 @@ npm run upload:app
 That command:
 
 1. builds the frontend bundle
-2. runs `@contentful/app-scripts upload`
+2. reads the required `CONTENTFUL_*` environment variables
+3. runs `@contentful/app-scripts upload --ci`
 3. uploads the built app bundle to your private app definition's hosting
 
-You will need the appropriate Contentful credentials available in your shell when you run it.
+You will need these variables available in your shell when you run it:
+
+- `CONTENTFUL_ORG_ID`
+- `CONTENTFUL_APP_DEF_ID`
+- `CONTENTFUL_ACCESS_TOKEN`
+- optional: `CONTENTFUL_HOST` for EU hostnames
+- optional: `CONTENTFUL_BUNDLE_COMMENT`
 
 If you open the deployed frontend outside Contentful, it now shows a standalone landing page instead of a blank screen. That page is only a deployment check; the real app UI appears once Contentful loads it inside an iframe.
 
