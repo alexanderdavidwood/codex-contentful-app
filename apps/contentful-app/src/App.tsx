@@ -1,12 +1,19 @@
 import { locations, type AppExtensionSDK, type PageExtensionSDK } from "@contentful/app-sdk";
 import { Paragraph } from "@contentful/f36-components";
 import { useSDK } from "@contentful/react-apps-toolkit";
+import { useEffect } from "react";
 
 import { ConfigScreen } from "./locations/ConfigScreen.js";
 import { Page } from "./locations/Page.js";
 
 export function App() {
   const sdk = useSDK<AppExtensionSDK | PageExtensionSDK>();
+
+  useEffect(() => {
+    if ("app" in sdk) {
+      void sdk.app.setReady();
+    }
+  }, [sdk]);
 
   if (sdk.location.is(locations.LOCATION_APP_CONFIG)) {
     return <ConfigScreen />;
