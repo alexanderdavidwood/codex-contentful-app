@@ -10,7 +10,7 @@ import {
   TextInput,
 } from "@contentful/f36-components";
 import type { AppExtensionSDK } from "@contentful/app-sdk";
-import { useAutoResizer, useSDK } from "@contentful/react-apps-toolkit";
+import { useSDK } from "@contentful/react-apps-toolkit";
 
 import type { BuilderInstallationParameters } from "../types.js";
 
@@ -29,7 +29,6 @@ const DEFAULT_VALUES: BuilderInstallationParameters = {
 
 export function ConfigScreen() {
   const sdk = useSDK<AppExtensionSDK>();
-  useAutoResizer();
   const [parameters, setParameters] = useState<BuilderInstallationParameters>(DEFAULT_VALUES);
 
   useEffect(() => {

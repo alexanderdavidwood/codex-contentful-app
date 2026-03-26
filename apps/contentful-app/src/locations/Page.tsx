@@ -15,7 +15,7 @@ import {
   Textarea,
 } from "@contentful/f36-components";
 import type { PageExtensionSDK } from "@contentful/app-sdk";
-import { useAutoResizer, useSDK } from "@contentful/react-apps-toolkit";
+import { useSDK } from "@contentful/react-apps-toolkit";
 
 import { bootstrapBuilder, createProject, getProjectDetail, startRun, subscribeToRun } from "../api.js";
 import type {
@@ -40,7 +40,6 @@ function getInstallationParameters(sdk: PageExtensionSDK): BuilderInstallationPa
 
 export function Page() {
   const sdk = useSDK<PageExtensionSDK>();
-  useAutoResizer();
   const installation = useMemo(() => getInstallationParameters(sdk), [sdk]);
   const [projects, setProjects] = useState<BuilderProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
