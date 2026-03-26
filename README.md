@@ -22,6 +22,14 @@ This repository implements the stage-1 MVP from the plan:
 - `docs/deploy-render.md` - Render deployment walkthrough
 - `docs/install-contentful.md` - Contentful installation walkthrough
 
+For Contentful app hosting, use:
+
+```bash
+npm run upload:app
+```
+
+That builds `apps/contentful-app/dist` and runs `@contentful/app-scripts upload`.
+
 ## Local development
 
 ```bash

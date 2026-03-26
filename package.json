@@ -12,6 +12,7 @@
     "build:app": "npm run build --workspace @codex-builder/contentful-app",
     "dev:api": "npm run dev --workspace @codex-builder/api",
     "dev:app": "npm run dev --workspace @codex-builder/contentful-app",
+    "upload:app": "npm run upload --workspace @codex-builder/contentful-app",
     "typecheck": "npm run typecheck --workspaces",
     "test": "npm run test --workspaces"
   }

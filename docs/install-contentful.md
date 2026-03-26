@@ -5,6 +5,8 @@ This MVP supports two installation patterns for the frontend:
 - `Render static site`
 - `Contentful app hosting` using the built `apps/contentful-app/dist` bundle
 
+If Contentful cannot reliably load the Render-hosted frontend, use `Contentful app hosting` as the default path.
+
 ## Build the frontend bundle
 
 ```bash
@@ -12,6 +14,22 @@ npm run build --workspace @codex-builder/contentful-app
 ```
 
 The resulting bundle is in `apps/contentful-app/dist` and includes `index.html` at the root, which is required for Contentful app hosting.
+
+## Recommended path: Contentful app hosting
+
+The repository now includes an upload script:
+
+```bash
+npm run upload:app
+```
+
+That command:
+
+1. builds the frontend bundle
+2. runs `@contentful/app-scripts upload`
+3. uploads the built app bundle to your private app definition's hosting
+
+You will need the appropriate Contentful credentials available in your shell when you run it.
 
 If you open the deployed frontend outside Contentful, it now shows a standalone landing page instead of a blank screen. That page is only a deployment check; the real app UI appears once Contentful loads it inside an iframe.
 
@@ -28,7 +46,22 @@ In your Contentful organization settings:
    - `Page`
 4. Choose one hosting mode:
    - `Public URL`: use the Render static site URL
-   - `Contentful app hosting`: upload the contents of `apps/contentful-app/dist`
+   - `Contentful app hosting`: preferred; upload the contents of `apps/contentful-app/dist`
+
+## Switching from Render frontend hosting to Contentful app hosting
+
+1. Keep the API deployed on Render.
+2. Stop using the Render static site URL in the Contentful app definition.
+3. Build or upload the frontend bundle:
+
+```bash
+npm run upload:app
+```
+
+4. In the Contentful private app definition, switch hosting to `Contentful app hosting`.
+5. Upload the `dist` bundle if you are doing it manually in the UI, or let the upload script update the hosted bundle.
+6. Reopen the app inside Contentful.
+7. In the app configuration screen, set `API base URL` to the Render API URL.
 
 ## Install the app in a space
 
@@ -38,6 +71,18 @@ In your Contentful organization settings:
    - `Tenant ID` to an internal tenant label
    - optional GitHub and OpenAI secret references if you want those values visible in the config model
 3. Save the installation.
+
+## If you want to upload manually instead of using the script
+
+1. Run:
+
+```bash
+npm run build --workspace @codex-builder/contentful-app
+```
+
+2. In Contentful app hosting, upload the contents of `apps/contentful-app/dist`.
+3. Publish or save the hosted bundle in the app definition.
+4. Reinstall or reopen the app in your target space.
 
 ## Source-of-truth metadata
 
