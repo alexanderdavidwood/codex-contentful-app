@@ -99,6 +99,18 @@ function buildProjectProvisioningError(primaryMessage: string, rollbackMessage?:
     : primaryMessage;
 }
 
+type AsyncRouteHandler = (
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction,
+) => Promise<void>;
+
+function asyncRoute(handler: AsyncRouteHandler) {
+  return (request: express.Request, response: express.Response, next: express.NextFunction) => {
+    void handler(request, response, next).catch(next);
+  };
+}
+
 function isAllowedCorsOrigin(origin: string) {
   if (config.corsOrigins.includes(origin)) {
     return true;
@@ -147,7 +159,7 @@ export async function createApp() {
     });
   });
 
-  app.post("/v1/installations/bootstrap", async (request, response) => {
+  app.post("/v1/installations/bootstrap", asyncRoute(async (request, response) => {
     const parsed = bootstrapRequestSchema.parse(request.body);
     const installation = await decorateInstallationWithGitHubConnection(parsed.installation);
     await store.upsertInstallation(installation);
@@ -156,27 +168,28 @@ export async function createApp() {
       installation,
       projects,
     });
-  });
+  }));
 
-  app.post("/v1/config/status", async (request, response) => {
+  app.post("/v1/config/status", asyncRoute(async (request, response) => {
     const parsed = configStatusRequestSchema.parse(request.body);
     response.json(await configStatusService.getStatus(parsed.installation));
-  });
+  }));
 
-  app.post("/v1/config/github/connect-session", async (request, response) => {
+  app.post("/v1/config/github/connect-session", asyncRoute(async (request, response) => {
     const parsed = gitHubConnectSessionRequestSchema.parse(request.body);
     response.status(201).json(await gitHubAppService.createConnectSession(parsed));
-  });
+  }));
 
-  app.get("/v1/config/github/connect-session/:sessionId", async (request, response) => {
+  app.get("/v1/config/github/connect-session/:sessionId", asyncRoute(async (request, response) => {
+    const sessionId = `${request.params.sessionId ?? ""}`;
     response.json(
       gitHubConnectSessionStatusResponseSchema.parse(
-        await gitHubAppService.getConnectSessionStatus(request.params.sessionId),
+        await gitHubAppService.getConnectSessionStatus(sessionId),
       ),
     );
-  });
+  }));
 
-  app.get("/v1/config/github/status", async (request, response) => {
+  app.get("/v1/config/github/status", asyncRoute(async (request, response) => {
     const tenantId = `${request.query.tenantId ?? ""}`.trim();
     if (!tenantId) {
       response.status(400).json({ error: "tenantId query parameter is required." });
@@ -184,9 +197,9 @@ export async function createApp() {
     }
 
     response.json(await gitHubAppService.getConnectionStatus(tenantId));
-  });
+  }));
 
-  app.post("/v1/config/github/disconnect", async (request, response) => {
+  app.post("/v1/config/github/disconnect", asyncRoute(async (request, response) => {
     const parsed = disconnectGitHubRequestSchema.parse(request.body);
     const connection = await gitHubAppService.disconnect(parsed.tenantId);
     const installation = await store.getInstallation(parsed.tenantId);
@@ -206,9 +219,9 @@ export async function createApp() {
     }
 
     response.json(connection);
-  });
+  }));
 
-  app.get("/v1/oauth/github/setup", async (request, response) => {
+  app.get("/v1/oauth/github/setup", asyncRoute(async (request, response) => {
     const result = await gitHubAppService.handleSetupRedirect({
       installationId: `${request.query.installation_id ?? ""}`.trim() || undefined,
       setupAction: `${request.query.setup_action ?? ""}`.trim() || undefined,
@@ -227,9 +240,9 @@ export async function createApp() {
       postMessageType: "codex-builder:github-failed",
     });
     response.status(popup.status).type("html").send(popup.html);
-  });
+  }));
 
-  app.get("/v1/oauth/github/callback", async (request, response) => {
+  app.get("/v1/oauth/github/callback", asyncRoute(async (request, response) => {
     const result = await gitHubAppService.handleOAuthCallback({
       code: `${request.query.code ?? ""}`.trim() || undefined,
       state: `${request.query.state ?? ""}`.trim() || undefined,
@@ -253,9 +266,9 @@ export async function createApp() {
       postMessageType: "codex-builder:github-failed",
     });
     response.status(popup.status).type("html").send(popup.html);
-  });
+  }));
 
-  app.post("/v1/projects", async (request, response) => {
+  app.post("/v1/projects", asyncRoute(async (request, response) => {
     const parsed = createProjectRequestSchema.parse(request.body);
     const installation = await store.getInstallation(parsed.tenantId);
     if (!installation) {
@@ -348,10 +361,10 @@ export async function createApp() {
         ),
       });
     }
-  });
+  }));
 
-  app.get("/v1/projects/:projectId", async (request, response) => {
-    const project = await store.getProject(request.params.projectId);
+  app.get("/v1/projects/:projectId", asyncRoute(async (request, response) => {
+    const project = await store.getProject(`${request.params.projectId ?? ""}`);
     if (!project) {
       response.status(404).json({ error: "Project not found" });
       return;
@@ -364,10 +377,10 @@ export async function createApp() {
         runs,
       }),
     );
-  });
+  }));
 
-  app.post("/v1/projects/:projectId/runs", async (request, response) => {
-    const project = await store.getProject(request.params.projectId);
+  app.post("/v1/projects/:projectId/runs", asyncRoute(async (request, response) => {
+    const project = await store.getProject(`${request.params.projectId ?? ""}`);
     if (!project) {
       response.status(404).json({ error: "Project not found" });
       return;
@@ -381,10 +394,10 @@ export async function createApp() {
         status: run.status,
       }),
     );
-  });
+  }));
 
-  app.get("/v1/runs/:runId/stream", async (request, response) => {
-    const run = await store.getRun(request.params.runId);
+  app.get("/v1/runs/:runId/stream", asyncRoute(async (request, response) => {
+    const run = await store.getRun(`${request.params.runId ?? ""}`);
     if (!run) {
       response.status(404).json({ error: "Run not found" });
       return;
@@ -407,10 +420,10 @@ export async function createApp() {
       emitter.off("event", listener);
       response.end();
     });
-  });
+  }));
 
-  app.post("/v1/projects/:projectId/promotions", async (request, response) => {
-    const project = await store.getProject(request.params.projectId);
+  app.post("/v1/projects/:projectId/promotions", asyncRoute(async (request, response) => {
+    const project = await store.getProject(`${request.params.projectId ?? ""}`);
     if (!project) {
       response.status(404).json({ error: "Project not found" });
       return;
@@ -423,7 +436,7 @@ export async function createApp() {
       approvalComment: parsed.approvalComment,
       message: "Promotion flow is staged for manual review in the MVP.",
     });
-  });
+  }));
 
   app.post("/v1/webhooks/github", (request, response) => {
     response.status(202).json({
@@ -432,7 +445,13 @@ export async function createApp() {
     });
   });
 
-  app.use((error: Error, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  app.use((error: Error, request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    console.error("codex-builder-api route error", {
+      method: request.method,
+      path: request.originalUrl,
+      message: error.message,
+      stack: error.stack,
+    });
     response.status(500).json({
       error: error.message,
     });
