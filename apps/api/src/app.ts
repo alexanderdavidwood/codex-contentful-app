@@ -99,6 +99,22 @@ function buildProjectProvisioningError(primaryMessage: string, rollbackMessage?:
     : primaryMessage;
 }
 
+function isAllowedCorsOrigin(origin: string) {
+  if (config.corsOrigins.includes(origin)) {
+    return true;
+  }
+
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === "https:" &&
+      (url.hostname.endsWith(".ctfcloud.net") || url.hostname.endsWith(".contentfulapp.com"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function createApp() {
   await store.init();
 
@@ -106,7 +122,7 @@ export async function createApp() {
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || config.corsOrigins.length === 0 || config.corsOrigins.includes(origin)) {
+        if (!origin || config.corsOrigins.length === 0 || isAllowedCorsOrigin(origin)) {
           callback(null, true);
           return;
         }
