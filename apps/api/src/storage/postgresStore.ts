@@ -52,13 +52,15 @@ export class PostgresStore implements Store {
 
       alter table github_connect_sessions add column if not exists install_state text;
       alter table github_connect_sessions add column if not exists oauth_state text;
+      alter table github_connect_sessions add column if not exists state_nonce text;
     `);
 
     await this.pool.query(`
       update github_connect_sessions
-      set install_state = coalesce(install_state, payload->>'installState', payload->>'stateNonce'),
-          oauth_state = coalesce(oauth_state, payload->>'oauthState', payload->>'stateNonce')
-      where install_state is null or oauth_state is null;
+      set install_state = coalesce(install_state, payload->>'installState', payload->>'stateNonce', state_nonce),
+          oauth_state = coalesce(oauth_state, payload->>'oauthState', payload->>'stateNonce', state_nonce),
+          state_nonce = coalesce(state_nonce, payload->>'stateNonce', install_state, oauth_state)
+      where install_state is null or oauth_state is null or state_nonce is null;
     `);
 
     await this.pool.query(`
@@ -142,10 +144,10 @@ export class PostgresStore implements Store {
   async createGitHubConnectSession(session: GitHubConnectSession): Promise<void> {
     await this.pool.query(
       `
-        insert into github_connect_sessions (id, install_state, oauth_state, tenant_id, payload)
-        values ($1, $2, $3, $4, $5::jsonb)
+        insert into github_connect_sessions (id, install_state, oauth_state, state_nonce, tenant_id, payload)
+        values ($1, $2, $3, $4, $5, $6::jsonb)
       `,
-      [session.id, session.installState, session.oauthState, session.tenantId, JSON.stringify(session)],
+      [session.id, session.installState, session.oauthState, session.installState, session.tenantId, JSON.stringify(session)],
     );
   }
 
@@ -175,8 +177,8 @@ export class PostgresStore implements Store {
 
   async updateGitHubConnectSession(session: GitHubConnectSession): Promise<void> {
     await this.pool.query(
-      "update github_connect_sessions set install_state = $2, oauth_state = $3, tenant_id = $4, payload = $5::jsonb where id = $1",
-      [session.id, session.installState, session.oauthState, session.tenantId, JSON.stringify(session)],
+      "update github_connect_sessions set install_state = $2, oauth_state = $3, state_nonce = $4, tenant_id = $5, payload = $6::jsonb where id = $1",
+      [session.id, session.installState, session.oauthState, session.installState, session.tenantId, JSON.stringify(session)],
     );
   }
 
