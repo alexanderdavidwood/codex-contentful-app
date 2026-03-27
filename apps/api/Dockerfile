@@ -6,7 +6,10 @@ COPY package.json package-lock.json tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
 
-RUN npm ci \
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm ci \
   && npm install -g @openai/codex \
   && npm run build --workspace @codex-builder/shared \
   && npm run build --workspace @codex-builder/api \
