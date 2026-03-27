@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   configStatusResponseSchema,
   createDefaultManifest,
+  gitHubConnectSessionSchema,
+  gitHubUserAuthRecordSchema,
   managedProjectManifestSchema,
   tenantInstallationConfigSchema,
 } from "./contracts.js";
@@ -23,6 +25,11 @@ test("tenant installation config supports github connection metadata", () => {
     githubOwnerLogin: "acme-org",
     githubOwnerType: "Organization",
     githubConnectionStatus: "connected",
+    githubAuthMode: "installation",
+    githubUserId: "42",
+    githubUserLogin: "alex",
+    githubUserAuthorizationStatus: "authorized",
+    githubTokenExpiresAt: "2026-03-27T10:00:00.000Z",
     openAiSecretRef: "render:OPENAI_API_KEY",
     previewTarget: "contentful-preview",
     productionTarget: "contentful-production",
@@ -45,7 +52,8 @@ test("config status response schema accepts guided setup payloads", () => {
       environment: "production",
       storage: "postgres",
       openAiConfigured: true,
-      githubConfigured: true,
+    githubConfigured: true,
+      githubUserAuthConfigured: true,
       runnerCapabilities: {
         interactiveSessions: true,
         batchRuns: true,
@@ -61,6 +69,11 @@ test("config status response schema accepts guided setup payloads", () => {
       ownerType: "Organization",
       repositorySelection: "selected",
       connectedAt: "2026-03-26T10:00:00.000Z",
+      authMode: "installation",
+      githubUserId: "42",
+      githubUserLogin: "alex",
+      userAuthorizationStatus: "authorized",
+      tokenExpiresAt: "2026-03-27T10:00:00.000Z",
     },
     openai: {
       status: "passed",
@@ -90,4 +103,49 @@ test("config status response schema accepts guided setup payloads", () => {
 
   assert.equal(parsed.overall, "ready");
   assert.equal(parsed.github.ownerLogin, "acme-org");
+});
+
+test("github connect session schema accepts install and oauth state", () => {
+  const parsed = gitHubConnectSessionSchema.parse({
+    id: "session-1",
+    tenantId: "internal-demo",
+    contentfulContext: {
+      organizationId: "org-1",
+      appId: "app-1",
+      environmentId: "master",
+      spaceId: "space-1",
+      userId: "user-1",
+    },
+    status: "pending",
+    authorizationStatus: "awaiting_authorization",
+    installState: "install-state",
+    oauthState: "oauth-state",
+    pkceVerifier: "pkce-verifier",
+    returnUrl: "https://app.contentful.com",
+    createdAt: "2026-03-27T09:00:00.000Z",
+    updatedAt: "2026-03-27T09:00:00.000Z",
+    expiresAt: "2026-03-27T09:10:00.000Z",
+    pendingInstallationId: "12345",
+  });
+
+  assert.equal(parsed.authorizationStatus, "awaiting_authorization");
+  assert.equal(parsed.pendingInstallationId, "12345");
+});
+
+test("github user auth record schema accepts encrypted token fields", () => {
+  const parsed = gitHubUserAuthRecordSchema.parse({
+    tenantId: "internal-demo",
+    githubUserId: "42",
+    githubUserLogin: "alex",
+    installationId: "12345",
+    accessTokenEncrypted: "iv.tag.ciphertext",
+    refreshTokenEncrypted: "iv.tag.ciphertext",
+    accessTokenExpiresAt: "2026-03-27T09:30:00.000Z",
+    refreshTokenExpiresAt: "2026-04-27T09:30:00.000Z",
+    createdAt: "2026-03-27T09:00:00.000Z",
+    updatedAt: "2026-03-27T09:00:00.000Z",
+  });
+
+  assert.equal(parsed.githubUserLogin, "alex");
+  assert.equal(parsed.installationId, "12345");
 });

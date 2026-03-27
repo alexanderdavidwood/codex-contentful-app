@@ -53,6 +53,13 @@ export const tenantInstallationConfigSchema = z.object({
   githubOwnerLogin: z.string().min(1).optional(),
   githubOwnerType: z.enum(["Organization", "User"]).optional(),
   githubConnectionStatus: z.enum(["disconnected", "pending", "connected", "error"]).optional(),
+  githubAuthMode: z.enum(["installation", "user"]).optional(),
+  githubUserId: z.string().min(1).optional(),
+  githubUserLogin: z.string().min(1).optional(),
+  githubUserAuthorizationStatus: z
+    .enum(["missing", "awaiting_authorization", "authorized", "expired", "error"])
+    .optional(),
+  githubTokenExpiresAt: z.string().datetime().optional(),
   openAiSecretRef: z.string().min(1).optional(),
   previewTarget: z.string().min(1),
   productionTarget: z.string().min(1),
@@ -73,13 +80,44 @@ export const contentfulContextSchema = z.object({
 
 export type ContentfulContext = z.infer<typeof contentfulContextSchema>;
 
+export const gitHubAuthModeSchema = z.enum(["installation", "user"]);
+
+export type GitHubAuthMode = z.infer<typeof gitHubAuthModeSchema>;
+
+export const gitHubUserAuthorizationStatusSchema = z.enum([
+  "missing",
+  "awaiting_authorization",
+  "authorized",
+  "expired",
+  "error",
+]);
+
+export type GitHubUserAuthorizationStatus = z.infer<typeof gitHubUserAuthorizationStatusSchema>;
+
+export const gitHubRepositorySchema = z.object({
+  provider: z.literal("github"),
+  owner: z.string().min(1),
+  name: z.string().min(1),
+  defaultBranch: z.string().min(1),
+  visibility: z.enum(["private", "public", "internal"]),
+  htmlUrl: z.string().url(),
+});
+
+export type GitHubRepository = z.infer<typeof gitHubRepositorySchema>;
+
 export const gitHubConnectionStatusSchema = z.object({
   status: z.enum(["disconnected", "pending", "connected", "error"]),
   installationId: z.string().min(1).optional(),
+  installationUrl: z.string().url().optional(),
   ownerLogin: z.string().min(1).optional(),
   ownerType: z.enum(["Organization", "User"]).optional(),
   repositorySelection: z.enum(["selected", "all"]).optional(),
   connectedAt: z.string().datetime().optional(),
+  authMode: gitHubAuthModeSchema.optional(),
+  githubUserId: z.string().min(1).optional(),
+  githubUserLogin: z.string().min(1).optional(),
+  userAuthorizationStatus: gitHubUserAuthorizationStatusSchema.optional(),
+  tokenExpiresAt: z.string().datetime().optional(),
   errorCode: z.string().min(1).optional(),
   errorMessage: z.string().min(1).optional(),
 });
@@ -91,19 +129,45 @@ export const gitHubConnectSessionSchema = z.object({
   tenantId: z.string().min(1),
   contentfulContext: contentfulContextSchema,
   status: z.enum(["pending", "connected", "failed", "expired"]),
-  stateNonce: z.string().min(1),
+  authorizationStatus: z.enum([
+    "awaiting_installation",
+    "awaiting_authorization",
+    "authorized",
+    "error",
+  ]),
+  installState: z.string().min(1),
+  oauthState: z.string().min(1),
+  pkceVerifier: z.string().min(1),
   returnUrl: z.string().url(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
+  pendingInstallationId: z.string().min(1).optional(),
   installationId: z.string().min(1).optional(),
   ownerLogin: z.string().min(1).optional(),
   ownerType: z.enum(["Organization", "User"]).optional(),
+  githubUserId: z.string().min(1).optional(),
+  githubUserLogin: z.string().min(1).optional(),
   errorCode: z.string().min(1).optional(),
   errorMessage: z.string().min(1).optional(),
 });
 
 export type GitHubConnectSession = z.infer<typeof gitHubConnectSessionSchema>;
+
+export const gitHubUserAuthRecordSchema = z.object({
+  tenantId: z.string().min(1),
+  githubUserId: z.string().min(1),
+  githubUserLogin: z.string().min(1),
+  installationId: z.string().min(1),
+  accessTokenEncrypted: z.string().min(1),
+  refreshTokenEncrypted: z.string().min(1).optional(),
+  accessTokenExpiresAt: z.string().datetime().optional(),
+  refreshTokenExpiresAt: z.string().datetime().optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export type GitHubUserAuthRecord = z.infer<typeof gitHubUserAuthRecordSchema>;
 
 export const gitHubConnectSessionRequestSchema = z.object({
   tenantId: z.string().min(1),
@@ -125,6 +189,12 @@ export type GitHubConnectSessionResponse = z.infer<typeof gitHubConnectSessionRe
 export const gitHubConnectSessionStatusResponseSchema = z.object({
   sessionId: z.string().min(1),
   status: z.enum(["pending", "connected", "failed", "expired"]),
+  authorizationStatus: z.enum([
+    "awaiting_installation",
+    "awaiting_authorization",
+    "authorized",
+    "error",
+  ]),
   connection: gitHubConnectionStatusSchema.optional(),
   errorCode: z.string().min(1).optional(),
   errorMessage: z.string().min(1).optional(),
@@ -170,6 +240,7 @@ export const configStatusResponseSchema = z.object({
     storage: z.string().min(1).optional(),
     openAiConfigured: z.boolean(),
     githubConfigured: z.boolean(),
+    githubUserAuthConfigured: z.boolean(),
     runnerCapabilities: z.object({
       interactiveSessions: z.boolean(),
       batchRuns: z.boolean(),
@@ -254,6 +325,7 @@ export const projectRecordSchema = z.object({
   repoRef: z.string().min(1),
   description: z.string().default(""),
   manifest: managedProjectManifestSchema,
+  repository: gitHubRepositorySchema.optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

@@ -46,7 +46,10 @@ The blueprint explicitly disables Render preview environments because Hobby work
 - `OPENAI_API_KEY`
 - `GITHUB_APP_ID`
 - `GITHUB_APP_NAME`
+- `GITHUB_APP_CLIENT_ID`
+- `GITHUB_APP_CLIENT_SECRET`
 - `GITHUB_APP_PRIVATE_KEY`
+- `GITHUB_TOKEN_ENCRYPTION_KEY`
 
 ### Optional
 
@@ -64,19 +67,67 @@ The blueprint explicitly disables Render preview environments because Hobby work
 
 ## GitHub App callback
 
+Set the GitHub App setup URL to:
+
+```text
+https://<your-render-api-host>/v1/oauth/github/setup
+```
+
 Set the GitHub App callback URL to:
 
 ```text
 https://<your-render-api-host>/v1/oauth/github/callback
 ```
 
-The config screen now starts a backend-owned GitHub connect session and opens the GitHub App install flow from Contentful. The backend then looks up the installation details and stores the connected owner against the tenant.
+The config screen now starts a backend-owned GitHub connect session, opens the GitHub App install flow, then redirects the popup into GitHub user authorization. The backend validates the installation against the authorized user, stores encrypted user-token data, and uses installation tokens for organization repos or user tokens for personal repos.
+
+## Manual GitHub App setup checklist
+
+1. Open GitHub and go to `Settings -> Developer settings -> GitHub Apps`.
+2. Click `New GitHub App`.
+3. Create the GitHub App under your personal account for now.
+2. Set:
+   - `Homepage URL` to your repo or product URL
+   - `Setup URL` to `https://<your-render-api-host>/v1/oauth/github/setup`
+   - `Callback URL` to `https://<your-render-api-host>/v1/oauth/github/callback`
+4. Choose installation settings that allow the app to be installed into other accounts you control.
+5. Leave `Request user authorization (OAuth) during installation` disabled.
+6. Set repository permissions:
+   - `Metadata: Read-only`
+   - `Contents: Read & write`
+   - `Administration: Read & write`
+7. Generate and save:
+   - App ID
+   - app slug
+   - client ID
+   - client secret
+   - private key PEM
+8. Generate a token encryption key:
+
+```bash
+openssl rand -base64 32
+```
+
+9. Put all required GitHub env vars into Render exactly as:
+   - `GITHUB_APP_ID=<App ID>`
+   - `GITHUB_APP_NAME=<app slug>`
+   - `GITHUB_APP_CLIENT_ID=<Client ID>`
+   - `GITHUB_APP_CLIENT_SECRET=<Client secret>`
+   - `GITHUB_APP_PRIVATE_KEY=<full PEM contents>`
+   - `GITHUB_TOKEN_ENCRYPTION_KEY=<openssl output>`
+10. Redeploy the API service.
+11. Confirm `/health` returns `githubConfigured: true` and `githubUserAuthConfigured: true`.
 
 ## Smoke test after deploy
 
 1. Visit the API `/health` endpoint.
 2. Upload the frontend with `npm run upload:app` or confirm your hosted bundle is current.
 3. Install the private app in Contentful and complete the `ConfigScreen` checks.
-4. Confirm the page location is unblocked.
-5. Create a managed project from the `Page` location.
-6. Run a short prompt and confirm logs stream back into the UI.
+4. Click `Install and authorize GitHub` in the config screen.
+5. Choose the owner carefully:
+   - for org testing, install into the organization that should own repos
+   - for user testing, install into the personal account that should own repos
+6. Confirm the popup completes both GitHub installation and user authorization.
+7. Confirm the page location is unblocked.
+8. Create a managed project from the `Page` location.
+9. Confirm a private GitHub repository is created and the scaffold is pushed to `main`.

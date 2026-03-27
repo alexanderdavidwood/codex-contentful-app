@@ -1,6 +1,7 @@
 import type {
   GitHubConnectSession,
   GitHubConnectionStatus,
+  GitHubUserAuthRecord,
   ProjectRecord,
   RunRecord,
   TenantInstallationConfig,
@@ -19,9 +20,13 @@ export interface Store {
   getRun(runId: string): Promise<RunRecord | null>;
   createGitHubConnectSession(session: GitHubConnectSession): Promise<void>;
   getGitHubConnectSession(sessionId: string): Promise<GitHubConnectSession | null>;
-  getGitHubConnectSessionByState(stateNonce: string): Promise<GitHubConnectSession | null>;
+  getGitHubConnectSessionByInstallState(installState: string): Promise<GitHubConnectSession | null>;
+  getGitHubConnectSessionByOauthState(oauthState: string): Promise<GitHubConnectSession | null>;
   updateGitHubConnectSession(session: GitHubConnectSession): Promise<void>;
   getGitHubConnectionByTenant(tenantId: string): Promise<GitHubConnectionStatus | null>;
   upsertGitHubConnection(tenantId: string, connection: GitHubConnectionStatus): Promise<void>;
   clearGitHubConnection(tenantId: string): Promise<void>;
+  getGitHubUserAuthByTenant(tenantId: string): Promise<GitHubUserAuthRecord | null>;
+  upsertGitHubUserAuth(record: GitHubUserAuthRecord): Promise<void>;
+  clearGitHubUserAuth(tenantId: string): Promise<void>;
 }

@@ -52,7 +52,10 @@ npm run dev:app
 - `OPENAI_API_KEY` - required for headless or deployed Codex usage
 - `GITHUB_APP_ID` - GitHub App ID used for the guided connect flow
 - `GITHUB_APP_NAME` - GitHub App slug, used to build the installation URL
+- `GITHUB_APP_CLIENT_ID` - GitHub App client ID for the user authorization callback flow
+- `GITHUB_APP_CLIENT_SECRET` - GitHub App client secret for exchanging OAuth codes
 - `GITHUB_APP_PRIVATE_KEY` - PEM private key for GitHub App authentication
+- `GITHUB_TOKEN_ENCRYPTION_KEY` - 32-byte secret used to encrypt stored GitHub user tokens
 - `GITHUB_APP_BASE_URL` - optional override for GitHub host, defaults to `https://github.com`
 - `GITHUB_API_BASE_URL` - optional override for GitHub API host, defaults to `https://api.github.com`
 - `GITHUB_CONNECT_SESSION_TTL_MS` - optional TTL for GitHub connect sessions, defaults to 10 minutes
@@ -65,22 +68,61 @@ npm run dev:app
 
 The MVP config screen now expects a real GitHub App installation flow instead of a manual installation ID field.
 
+Manual setup steps:
+
+1. In GitHub, go to `Settings -> Developer settings -> GitHub Apps -> New GitHub App`.
+2. Create the app under your personal account for now, but name it like a service app, for example `codex-contentful-builder`.
+3. Set:
+   - `Homepage URL` to your repo or product URL
+   - `Setup URL` to `https://<your-render-api-host>/v1/oauth/github/setup`
+   - `Callback URL` to `https://<your-render-api-host>/v1/oauth/github/callback`
+4. Leave `Request user authorization (OAuth) during installation` disabled.
+5. Set repository permissions:
+   - `Metadata: Read-only`
+   - `Contents: Read & write`
+   - `Administration: Read & write`
+6. Generate and record:
+   - `App ID`
+   - app slug
+   - `Client ID`
+   - `Client secret`
+   - private key PEM contents
+7. Generate the token-encryption key locally:
+
+```bash
+openssl rand -base64 32
+```
+
+8. Add all GitHub env vars to the Render API service and redeploy.
+9. Confirm `https://<your-render-api-host>/health` returns:
+   - `githubConfigured: true`
+   - `githubUserAuthConfigured: true`
+
 Minimum GitHub App expectations:
 
+- app owned by your service account, with customer-specific installations
 - install with `selected repositories` access
 - repository metadata: read
 - repository contents: read and write
-- pull requests: optional for later PR-based workflows
+- repository administration: read and write
+- setup URL pointing to `<your-api-base-url>/v1/oauth/github/setup`
 - callback URL pointing to `<your-api-base-url>/v1/oauth/github/callback`
+- request user authorization during installation disabled in GitHub settings
 
 The config screen will:
 
 - create a short-lived connect session on the backend
 - open the GitHub App installation flow
-- poll the backend until the installation completes
-- show the connected owner, installation ID, and repository-selection scope
+- redirect the popup into GitHub user authorization after installation
+- poll the backend until install and authorization both complete
+- show the connected owner, authorized GitHub user, installation ID, auth mode, and repository-selection scope
 
 If the GitHub popup is blocked, the config screen exposes a fallback link to continue the install flow in a new tab.
+
+When you test the flow:
+
+- for organization-owned repositories, install the app into the target organization and finish authorization as a user who can create repos there
+- for personal repositories, install the app into the personal account that should own the managed repos
 
 ## MVP limitations
 

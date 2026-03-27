@@ -1,6 +1,7 @@
 import type {
   GitHubConnectSession,
   GitHubConnectionStatus,
+  GitHubUserAuthRecord,
   ProjectRecord,
   RunRecord,
   TenantInstallationConfig,
@@ -12,6 +13,7 @@ export class MemoryStore implements Store {
   private readonly installations = new Map<string, TenantInstallationConfig>();
   private readonly gitHubConnections = new Map<string, GitHubConnectionStatus>();
   private readonly gitHubConnectSessions = new Map<string, GitHubConnectSession>();
+  private readonly gitHubUserAuthRecords = new Map<string, GitHubUserAuthRecord>();
   private readonly projects = new Map<string, { tenantId: string; project: ProjectRecord }>();
   private readonly runs = new Map<string, RunRecord>();
 
@@ -66,8 +68,12 @@ export class MemoryStore implements Store {
     return this.gitHubConnectSessions.get(sessionId) ?? null;
   }
 
-  async getGitHubConnectSessionByState(stateNonce: string): Promise<GitHubConnectSession | null> {
-    return Array.from(this.gitHubConnectSessions.values()).find((session) => session.stateNonce === stateNonce) ?? null;
+  async getGitHubConnectSessionByInstallState(installState: string): Promise<GitHubConnectSession | null> {
+    return Array.from(this.gitHubConnectSessions.values()).find((session) => session.installState === installState) ?? null;
+  }
+
+  async getGitHubConnectSessionByOauthState(oauthState: string): Promise<GitHubConnectSession | null> {
+    return Array.from(this.gitHubConnectSessions.values()).find((session) => session.oauthState === oauthState) ?? null;
   }
 
   async updateGitHubConnectSession(session: GitHubConnectSession): Promise<void> {
@@ -84,5 +90,17 @@ export class MemoryStore implements Store {
 
   async clearGitHubConnection(tenantId: string): Promise<void> {
     this.gitHubConnections.delete(tenantId);
+  }
+
+  async getGitHubUserAuthByTenant(tenantId: string): Promise<GitHubUserAuthRecord | null> {
+    return this.gitHubUserAuthRecords.get(tenantId) ?? null;
+  }
+
+  async upsertGitHubUserAuth(record: GitHubUserAuthRecord): Promise<void> {
+    this.gitHubUserAuthRecords.set(record.tenantId, record);
+  }
+
+  async clearGitHubUserAuth(tenantId: string): Promise<void> {
+    this.gitHubUserAuthRecords.delete(tenantId);
   }
 }

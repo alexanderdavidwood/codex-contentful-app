@@ -17,10 +17,23 @@ test("scaffoldManagedProjectWorkspace creates a manifest-backed workspace", asyn
     "Test Project",
     "A test project",
     ["Page", "Sidebar"],
+    {
+      repoRef: "github/acme-org/test-project",
+      repository: {
+        provider: "github",
+        owner: "acme-org",
+        name: "test-project",
+        defaultBranch: "main",
+        visibility: "private",
+        htmlUrl: "https://github.com/acme-org/test-project",
+      },
+    },
   );
 
   assert.match(project.workspacePath, /test-project$/);
   assert.equal(project.manifest.appName, "Test Project");
+  assert.equal(project.repoRef, "github/acme-org/test-project");
+  assert.equal(project.repository?.owner, "acme-org");
 
   await rm(tempRoot, { recursive: true, force: true });
   Object.assign(config, { managedProjectRoot: originalRoot });

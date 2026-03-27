@@ -41,6 +41,7 @@ type AsyncState = "idle" | "loading";
 type GitHubSessionState = {
   sessionId: string;
   status: BuilderGitHubConnectSessionStatusResponse["status"];
+  authorizationStatus: BuilderGitHubConnectSessionStatusResponse["authorizationStatus"];
   connectUrl: string;
   expiresAt: string;
   errorMessage?: string;
@@ -75,9 +76,15 @@ function getConfigSummary(
   configStatus: BuilderConfigStatusResponse | null,
   parameters: BuilderInstallationParameters,
 ) {
+  const gitHubSummaryStatus =
+    configStatus?.github.status === "connected" &&
+    configStatus.github.userAuthorizationStatus !== "authorized"
+      ? "warning"
+      : configStatus?.github.status ?? (parameters.githubInstallationId ? "warning" : "disconnected");
+
   return {
     backend: configStatus?.backend.status ?? (parameters.apiBaseUrl ? "warning" : "missing"),
-    github: configStatus?.github.status ?? (parameters.githubInstallationId ? "warning" : "disconnected"),
+    github: gitHubSummaryStatus,
     openai: configStatus?.openai.status ?? "missing",
     targets:
       configStatus?.targets.previewTarget.status === "passed" &&
@@ -282,7 +289,13 @@ export function ConfigScreen() {
           githubInstallationId: nextStatus.github.installationId ?? current.githubInstallationId,
           githubOwnerLogin: nextStatus.github.ownerLogin ?? current.githubOwnerLogin,
           githubOwnerType: nextStatus.github.ownerType ?? current.githubOwnerType,
+          githubAuthMode: nextStatus.github.authMode ?? current.githubAuthMode,
+          githubUserId: nextStatus.github.githubUserId ?? current.githubUserId,
+          githubUserLogin: nextStatus.github.githubUserLogin ?? current.githubUserLogin,
           githubConnectionStatus: nextStatus.github.status,
+          githubUserAuthorizationStatus:
+            nextStatus.github.userAuthorizationStatus ?? current.githubUserAuthorizationStatus,
+          githubTokenExpiresAt: nextStatus.github.tokenExpiresAt ?? current.githubTokenExpiresAt,
         }));
       }
 
@@ -329,6 +342,7 @@ export function ConfigScreen() {
                 ? {
                     ...current,
                     status: sessionStatus.status,
+                    authorizationStatus: sessionStatus.authorizationStatus,
                   }
                 : current,
             );
@@ -344,6 +358,7 @@ export function ConfigScreen() {
                 ? {
                     ...current,
                     status: sessionStatus.status,
+                    authorizationStatus: sessionStatus.authorizationStatus,
                     errorMessage: sessionStatus.errorMessage,
                   }
                 : current,
@@ -351,7 +366,17 @@ export function ConfigScreen() {
             popupRef.current?.close();
             popupRef.current = null;
             setCheckError(sessionStatus.errorMessage ?? "GitHub connection did not complete.");
+            return;
           }
+
+          setGitHubSession((current) =>
+            current
+              ? {
+                  ...current,
+                  authorizationStatus: sessionStatus.authorizationStatus,
+                }
+              : current,
+          );
         } catch (error) {
           if (!cancelled) {
             setCheckError(error instanceof Error ? error.message : "GitHub session polling failed.");
@@ -405,7 +430,12 @@ export function ConfigScreen() {
     }
 
     if (configStatus?.backend.githubConfigured === false) {
-      sdk.notifier.error("The backend is missing GitHub App configuration.");
+      sdk.notifier.error("The backend is missing GitHub App installation configuration.");
+      return;
+    }
+
+    if (configStatus?.backend.githubUserAuthConfigured === false) {
+      sdk.notifier.error("The backend is missing GitHub user authorization configuration.");
       return;
     }
 
@@ -428,6 +458,7 @@ export function ConfigScreen() {
       setGitHubSession({
         sessionId: session.sessionId,
         status: "pending",
+        authorizationStatus: "awaiting_installation",
         connectUrl: session.connectUrl,
         expiresAt: session.expiresAt,
       });
@@ -435,6 +466,7 @@ export function ConfigScreen() {
       setParameters((current) => ({
         ...current,
         githubConnectionStatus: "pending",
+        githubUserAuthorizationStatus: "awaiting_authorization",
       }));
 
       popupRef.current = window.open(
@@ -467,7 +499,12 @@ export function ConfigScreen() {
         githubInstallationId: "",
         githubOwnerLogin: "",
         githubOwnerType: undefined,
+        githubAuthMode: undefined,
+        githubUserId: "",
+        githubUserLogin: "",
         githubConnectionStatus: connection.status,
+        githubUserAuthorizationStatus: connection.userAuthorizationStatus,
+        githubTokenExpiresAt: undefined,
       }));
       await runChecks({ notify: true });
     } catch (error) {
@@ -485,6 +522,11 @@ export function ConfigScreen() {
     installationId: parameters.githubInstallationId || undefined,
     ownerLogin: parameters.githubOwnerLogin || undefined,
     ownerType: parameters.githubOwnerType,
+    authMode: parameters.githubAuthMode,
+    githubUserId: parameters.githubUserId || undefined,
+    githubUserLogin: parameters.githubUserLogin || undefined,
+    userAuthorizationStatus: parameters.githubUserAuthorizationStatus,
+    tokenExpiresAt: parameters.githubTokenExpiresAt,
   };
   const statusRail = (
     <ConfigStatusRail
@@ -605,6 +647,9 @@ export function ConfigScreen() {
                       <Paragraph marginBottom="none">
                         GitHub App configured: {configStatus.backend.githubConfigured ? "yes" : "no"}
                       </Paragraph>
+                      <Paragraph marginBottom="none">
+                        GitHub user auth configured: {configStatus.backend.githubUserAuthConfigured ? "yes" : "no"}
+                      </Paragraph>
                     </Flex>
                   </Box>
                 ) : null}
@@ -616,13 +661,25 @@ export function ConfigScreen() {
                 <div>
                   <Heading>GitHub</Heading>
                   <Paragraph marginBottom="spacingS">
-                    Connect a GitHub App installation with selected-repository access. This MVP only creates new managed repositories in the connected owner.
+                    Install the GitHub App into the target owner, then complete the GitHub user authorization step. This MVP only creates new managed repositories in the connected owner.
                   </Paragraph>
                 </div>
 
                 <Note variant="warning" title="Least privilege">
                   Use selected repositories only. The builder does not support arbitrary existing repositories in this phase.
                 </Note>
+
+                {!configStatus?.backend.githubConfigured ? (
+                  <Note variant="warning" title="Missing GitHub App env vars">
+                    Add <code>GITHUB_APP_ID</code>, <code>GITHUB_APP_NAME</code>, and <code>GITHUB_APP_PRIVATE_KEY</code> on the backend.
+                  </Note>
+                ) : null}
+
+                {configStatus?.backend.githubConfigured && !configStatus.backend.githubUserAuthConfigured ? (
+                  <Note variant="warning" title="Missing GitHub user auth env vars">
+                    Add <code>GITHUB_APP_CLIENT_ID</code>, <code>GITHUB_APP_CLIENT_SECRET</code>, and <code>GITHUB_TOKEN_ENCRYPTION_KEY</code> on the backend.
+                  </Note>
+                ) : null}
 
                 <Flex gap="spacingS" alignItems="center" flexWrap="wrap">
                   <Badge variant={getBadgeVariant(gitHubConnection.status)}>
@@ -654,7 +711,28 @@ export function ConfigScreen() {
                       <Paragraph marginBottom="none">
                         Repository selection: {gitHubConnection.repositorySelection ?? "selected"}
                       </Paragraph>
+                      <Paragraph marginBottom="none">
+                        Auth mode: {gitHubConnection.authMode ?? "unknown"}
+                      </Paragraph>
+                      <Paragraph marginBottom="none">
+                        Authorized GitHub user: {gitHubConnection.githubUserLogin ?? "unknown"}
+                      </Paragraph>
+                      <Paragraph marginBottom="none">
+                        User authorization: {toSentenceCase(gitHubConnection.userAuthorizationStatus ?? "missing")}
+                      </Paragraph>
+                      {gitHubConnection.tokenExpiresAt ? (
+                        <Paragraph marginBottom="none">
+                          User token expiry: {new Date(gitHubConnection.tokenExpiresAt).toLocaleString()}
+                        </Paragraph>
+                      ) : null}
                       <Paragraph marginBottom="none">Repository model: New managed repositories only</Paragraph>
+                      {gitHubConnection.installationUrl ? (
+                        <Paragraph marginBottom="none">
+                          <TextLink href={gitHubConnection.installationUrl} target="_blank" rel="noreferrer">
+                            View GitHub installation
+                          </TextLink>
+                        </Paragraph>
+                      ) : null}
                     </Flex>
                   </Box>
                 ) : null}
@@ -665,7 +743,9 @@ export function ConfigScreen() {
                     title={gitHubSession.status === "pending" ? "GitHub connection in progress" : "GitHub connection session"}
                   >
                     {gitHubSession.status === "pending"
-                      ? `Finish the GitHub install flow before ${new Date(gitHubSession.expiresAt).toLocaleTimeString()}.`
+                      ? gitHubSession.authorizationStatus === "awaiting_authorization"
+                        ? `GitHub installation completed. Finish the GitHub user authorization flow before ${new Date(gitHubSession.expiresAt).toLocaleTimeString()}.`
+                        : `Finish the GitHub App installation flow before ${new Date(gitHubSession.expiresAt).toLocaleTimeString()}.`
                       : gitHubSession.errorMessage ?? "The session has completed."}
                   </Note>
                 ) : null}
@@ -676,7 +756,7 @@ export function ConfigScreen() {
                     onClick={() => void handleConnectGitHub()}
                     isDisabled={githubState === "loading"}
                   >
-                    {gitHubConnection.status === "connected" ? "Reconnect GitHub" : "Connect GitHub"}
+                    {gitHubConnection.status === "connected" ? "Reconnect GitHub" : "Install and authorize GitHub"}
                   </Button>
                   <Button
                     variant="secondary"
@@ -863,6 +943,12 @@ export function ConfigScreen() {
                           </Paragraph>
                           <Paragraph marginBottom="spacing2Xs">
                             Owner type: {parameters.githubOwnerType || "not saved"}
+                          </Paragraph>
+                          <Paragraph marginBottom="spacing2Xs">
+                            Authorized user: {parameters.githubUserLogin || "not saved"}
+                          </Paragraph>
+                          <Paragraph marginBottom="spacing2Xs">
+                            Auth mode: {parameters.githubAuthMode || "not saved"}
                           </Paragraph>
                           <Paragraph marginBottom="none">
                             Connection state: {parameters.githubConnectionStatus || "not saved"}

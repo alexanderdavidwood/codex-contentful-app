@@ -2,7 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import type { ManagedProjectManifest, ProjectRecord } from "@codex-builder/shared";
+import type {
+  GitHubRepository,
+  ManagedProjectManifest,
+  ProjectRecord,
+} from "@codex-builder/shared";
 import { createDefaultManifest } from "@codex-builder/shared";
 
 import { config } from "../config.js";
@@ -31,6 +35,10 @@ export async function scaffoldManagedProjectWorkspace(
   name: string,
   description: string,
   supportedSurfaces: ManagedProjectManifest["supportedSurfaces"],
+  options?: {
+    repoRef?: string;
+    repository?: GitHubRepository;
+  },
 ): Promise<ProjectRecord> {
   const workspacePath = path.join(config.managedProjectRoot, projectId);
   const manifest = createDefaultManifest(name, supportedSurfaces);
@@ -142,9 +150,10 @@ This workspace is intentionally minimal in stage 1. The builder backend owns the
     id: projectId,
     name,
     workspacePath,
-    repoRef: `managed/${projectId}`,
+    repoRef: options?.repoRef ?? `managed/${projectId}`,
     description,
     manifest,
+    repository: options?.repository,
     createdAt: now,
     updatedAt: now,
   };

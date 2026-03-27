@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
 
 import express from "express";
 import cors from "cors";
@@ -20,7 +21,10 @@ import {
 import { config } from "./config.js";
 import { OpenAICodexRunner } from "./runners/openAiCodexRunner.js";
 import { ConfigStatusService } from "./services/configStatusService.js";
+import { GitHubAppAuthService } from "./services/githubAppAuthService.js";
 import { GitHubAppService } from "./services/githubAppService.js";
+import { GitHubRepositoryService } from "./services/githubRepositoryService.js";
+import { GitHubUserAuthService } from "./services/githubUserAuthService.js";
 import { RunCoordinator } from "./services/runCoordinator.js";
 import { scaffoldManagedProjectWorkspace } from "./services/projectScaffolder.js";
 import { createStore } from "./storage/index.js";
@@ -28,14 +32,20 @@ import { createStore } from "./storage/index.js";
 const store = createStore();
 const runner = new OpenAICodexRunner();
 const coordinator = new RunCoordinator(store, runner);
+const gitHubAppAuthService = new GitHubAppAuthService();
+const gitHubUserAuthService = new GitHubUserAuthService(store);
 const configStatusService = new ConfigStatusService(store, runner);
-const gitHubAppService = new GitHubAppService(store);
+const gitHubAppService = new GitHubAppService(store, gitHubAppAuthService, gitHubUserAuthService);
+const gitHubRepositoryService = new GitHubRepositoryService(
+  gitHubAppAuthService,
+  gitHubUserAuthService,
+);
 
 async function decorateInstallationWithGitHubConnection(
   installation: TenantInstallationConfig,
 ): Promise<TenantInstallationConfig> {
-  const connection = await store.getGitHubConnectionByTenant(installation.tenantId);
-  if (!connection) {
+  const connection = await gitHubAppService.getConnectionStatus(installation.tenantId);
+  if (connection.status === "disconnected") {
     return installation;
   }
 
@@ -45,7 +55,48 @@ async function decorateInstallationWithGitHubConnection(
     githubInstallationId: connection.installationId ?? installation.githubInstallationId,
     githubOwnerLogin: connection.ownerLogin ?? installation.githubOwnerLogin,
     githubOwnerType: connection.ownerType ?? installation.githubOwnerType,
+    githubAuthMode: connection.authMode ?? installation.githubAuthMode,
+    githubUserId: connection.githubUserId ?? installation.githubUserId,
+    githubUserLogin: connection.githubUserLogin ?? installation.githubUserLogin,
+    githubUserAuthorizationStatus:
+      connection.userAuthorizationStatus ?? installation.githubUserAuthorizationStatus,
+    githubTokenExpiresAt: connection.tokenExpiresAt ?? installation.githubTokenExpiresAt,
   };
+}
+
+function renderPopupHtml(args: {
+  title: string;
+  message: string;
+  postMessageType: "codex-builder:github-connected" | "codex-builder:github-failed";
+  sessionId?: string;
+  status?: number;
+}) {
+  const status = args.status ?? 200;
+  const sessionField = args.sessionId ? `, sessionId: "${args.sessionId}"` : "";
+  return {
+    status,
+    html: `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>${args.title}</title>
+  </head>
+  <body style="font-family: ui-sans-serif, system-ui, sans-serif; padding: 24px;">
+    <h1>${args.title}</h1>
+    <p>${args.message}</p>
+    <script>
+      window.opener?.postMessage({ type: "${args.postMessageType}"${sessionField} }, "*");
+      ${args.postMessageType === "codex-builder:github-connected" ? 'window.setTimeout(() => window.close(), 600);' : ""}
+    </script>
+  </body>
+</html>`,
+  };
+}
+
+function buildProjectProvisioningError(primaryMessage: string, rollbackMessage?: string) {
+  return rollbackMessage
+    ? `${primaryMessage} Rollback also failed: ${rollbackMessage}`
+    : primaryMessage;
 }
 
 export async function createApp() {
@@ -74,6 +125,7 @@ export async function createApp() {
       storage: config.databaseUrl ? "postgres" : "memory",
       corsOrigins: config.corsOrigins,
       githubConfigured: gitHubAppService.isConfigured(),
+      githubUserAuthConfigured: gitHubAppService.isUserAuthConfigured(),
       openAiConfigured: config.openAiApiKeyConfigured,
       runnerCapabilities: runner.getCapabilities(),
     });
@@ -129,68 +181,157 @@ export async function createApp() {
         githubInstallationId: undefined,
         githubOwnerLogin: undefined,
         githubOwnerType: undefined,
+        githubAuthMode: undefined,
+        githubUserId: undefined,
+        githubUserLogin: undefined,
+        githubUserAuthorizationStatus: undefined,
+        githubTokenExpiresAt: undefined,
       });
     }
 
     response.json(connection);
   });
 
-  app.get("/v1/oauth/github/callback", async (request, response) => {
-    const result = await gitHubAppService.handleCallback({
+  app.get("/v1/oauth/github/setup", async (request, response) => {
+    const result = await gitHubAppService.handleSetupRedirect({
       installationId: `${request.query.installation_id ?? ""}`.trim() || undefined,
       setupAction: `${request.query.setup_action ?? ""}`.trim() || undefined,
       state: `${request.query.state ?? ""}`.trim() || undefined,
     });
 
-    if (result.type === "connected") {
-      const safeTitle = "GitHub connected";
-      const safeMessage = "You can return to Contentful. This window will close automatically if it was opened as a popup.";
-      response.type("html").send(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>${safeTitle}</title>
-  </head>
-  <body style="font-family: ui-sans-serif, system-ui, sans-serif; padding: 24px;">
-    <h1>${safeTitle}</h1>
-    <p>${safeMessage}</p>
-    <script>
-      window.opener?.postMessage({ type: "codex-builder:github-connected", sessionId: "${result.session.id}" }, "*");
-      window.setTimeout(() => window.close(), 600);
-    </script>
-  </body>
-</html>`);
+    if (result.type === "redirect") {
+      response.redirect(302, result.redirectUrl);
       return;
     }
 
-    response.status(400).type("html").send(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>${result.title}</title>
-  </head>
-  <body style="font-family: ui-sans-serif, system-ui, sans-serif; padding: 24px;">
-    <h1>${result.title}</h1>
-    <p>${result.message}</p>
-    <script>
-      window.opener?.postMessage({ type: "codex-builder:github-failed" }, "*");
-    </script>
-  </body>
-</html>`);
+    const popup = renderPopupHtml({
+      status: 400,
+      title: result.title,
+      message: result.message,
+      postMessageType: "codex-builder:github-failed",
+    });
+    response.status(popup.status).type("html").send(popup.html);
+  });
+
+  app.get("/v1/oauth/github/callback", async (request, response) => {
+    const result = await gitHubAppService.handleOAuthCallback({
+      code: `${request.query.code ?? ""}`.trim() || undefined,
+      state: `${request.query.state ?? ""}`.trim() || undefined,
+    });
+
+    if (result.type === "connected") {
+      const popup = renderPopupHtml({
+        title: "GitHub connected",
+        message: "You can return to Contentful. This window will close automatically if it was opened as a popup.",
+        postMessageType: "codex-builder:github-connected",
+        sessionId: result.session.id,
+      });
+      response.status(popup.status).type("html").send(popup.html);
+      return;
+    }
+
+    const popup = renderPopupHtml({
+      status: 400,
+      title: result.title,
+      message: result.message,
+      postMessageType: "codex-builder:github-failed",
+    });
+    response.status(popup.status).type("html").send(popup.html);
   });
 
   app.post("/v1/projects", async (request, response) => {
     const parsed = createProjectRequestSchema.parse(request.body);
-    const project = await scaffoldManagedProjectWorkspace(
-      randomUUID(),
-      parsed.name,
-      parsed.description,
-      parsed.supportedSurfaces,
-    );
+    const installation = await store.getInstallation(parsed.tenantId);
+    if (!installation) {
+      response.status(400).json({
+        error: "No saved installation configuration was found for this tenant. Open the ConfigScreen and save the setup first.",
+      });
+      return;
+    }
 
-    projectRecordSchema.parse(project);
-    await store.createProject(parsed.tenantId, project);
-    response.status(201).json(project);
+    const connection = await gitHubAppService.getConnectionStatus(parsed.tenantId);
+    if (
+      connection.status !== "connected" ||
+      connection.userAuthorizationStatus !== "authorized" ||
+      !connection.ownerLogin ||
+      !connection.ownerType
+    ) {
+      response.status(400).json({
+        error: "GitHub must be fully connected and authorized before creating managed projects.",
+      });
+      return;
+    }
+
+    const projectId = randomUUID();
+    let project;
+    let repository;
+
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const repoName = gitHubRepositoryService.buildRepositoryName(parsed.name);
+        try {
+          repository = await gitHubRepositoryService.createRepository(
+            parsed.tenantId,
+            connection,
+            repoName,
+            parsed.description,
+            "private",
+          );
+          break;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "GitHub repository creation failed.";
+          const isNameCollision = /already exists/i.test(message);
+          if (!isNameCollision || attempt === 2) {
+            throw error;
+          }
+        }
+      }
+
+      if (!repository) {
+        throw new Error("GitHub repository creation did not return repository metadata.");
+      }
+
+      project = await scaffoldManagedProjectWorkspace(
+        projectId,
+        parsed.name,
+        parsed.description,
+        parsed.supportedSurfaces,
+        {
+          repoRef: `github/${repository.owner}/${repository.name}`,
+          repository,
+        },
+      );
+
+      await gitHubRepositoryService.pushWorkspace(parsed.tenantId, project, connection);
+
+      projectRecordSchema.parse(project);
+      await store.createProject(parsed.tenantId, project);
+      response.status(201).json(project);
+    } catch (error) {
+      let rollbackMessage = "";
+
+      if (project?.workspacePath) {
+        await rm(project.workspacePath, { recursive: true, force: true }).catch(() => undefined);
+      }
+
+      if (repository) {
+        await gitHubRepositoryService
+          .deleteRepository(parsed.tenantId, connection, repository.owner, repository.name)
+          .catch((rollbackError) => {
+            rollbackMessage =
+              rollbackError instanceof Error
+                ? rollbackError.message
+                : "GitHub repository rollback failed.";
+          });
+      }
+
+      response.status(500).json({
+        error: buildProjectProvisioningError(
+          error instanceof Error ? error.message : "Managed project provisioning failed.",
+          rollbackMessage,
+        ),
+      });
+    }
   });
 
   app.get("/v1/projects/:projectId", async (request, response) => {

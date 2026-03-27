@@ -85,7 +85,7 @@ function SetupBlocker(props: {
       </Box>
 
       <Note variant="warning" title="Complete setup first">
-        The page location will not create projects or start Codex runs until the backend, GitHub, OpenAI, and target checks all pass.
+        The page location will not create projects or start Codex runs until backend reachability, GitHub install plus authorization, OpenAI, and target checks all pass.
       </Note>
 
       <Card>
@@ -317,6 +317,10 @@ export function Page() {
         Stage 1 uses a Render-compatible demo backend. Expect cold starts and keep this limited to internal or tightly managed use.
       </Note>
 
+      <Note variant="primary" title="Managed repo model">
+        Each project creates a new private GitHub repository in the connected owner and pushes the scaffold directly to <code>main</code>.
+      </Note>
+
       <Card>
         <Flex flexDirection="column" gap="spacingM">
           <Heading>Create a managed project</Heading>
@@ -382,6 +386,19 @@ export function Page() {
             <Paragraph>
               Workspace: <code>{projectDetail.project.workspacePath}</code>
             </Paragraph>
+            {projectDetail.project.repository ? (
+              <Paragraph marginBottom="none">
+                Repository:{" "}
+                <a
+                  href={projectDetail.project.repository.htmlUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {projectDetail.project.repository.owner}/{projectDetail.project.repository.name}
+                </a>{" "}
+                ({projectDetail.project.repository.visibility}, branch {projectDetail.project.repository.defaultBranch})
+              </Paragraph>
+            ) : null}
             <Table>
               <Table.Head>
                 <Table.Row>

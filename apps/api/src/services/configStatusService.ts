@@ -13,6 +13,45 @@ function hasValue(value: string | undefined) {
   return Boolean(value && value.trim());
 }
 
+function normalizeGitHubConnection(connection: GitHubConnectionStatus | null, userAuth: {
+  githubUserId: string;
+  githubUserLogin: string;
+  accessTokenExpiresAt?: string;
+} | null): GitHubConnectionStatus {
+  if (!connection) {
+    return {
+      status: "disconnected",
+      userAuthorizationStatus: userAuth
+        ? userAuth.accessTokenExpiresAt &&
+          new Date(userAuth.accessTokenExpiresAt).getTime() <= Date.now()
+          ? "expired"
+          : "authorized"
+        : "missing",
+      githubUserId: userAuth?.githubUserId,
+      githubUserLogin: userAuth?.githubUserLogin,
+      tokenExpiresAt: userAuth?.accessTokenExpiresAt,
+    };
+  }
+
+  return {
+    ...connection,
+    authMode:
+      connection.authMode ??
+      (connection.ownerType === "Organization" ? "installation" : connection.ownerType ? "user" : undefined),
+    githubUserId: connection.githubUserId ?? userAuth?.githubUserId,
+    githubUserLogin: connection.githubUserLogin ?? userAuth?.githubUserLogin,
+    tokenExpiresAt: connection.tokenExpiresAt ?? userAuth?.accessTokenExpiresAt,
+    userAuthorizationStatus:
+      connection.userAuthorizationStatus ??
+      (userAuth
+        ? userAuth.accessTokenExpiresAt &&
+          new Date(userAuth.accessTokenExpiresAt).getTime() <= Date.now()
+          ? "expired"
+          : "authorized"
+        : "missing"),
+  };
+}
+
 function buildGitHubCheckSummary(connection: GitHubConnectionStatus, gitHubConfigured: boolean) {
   if (!gitHubConfigured) {
     return {
@@ -22,15 +61,18 @@ function buildGitHubCheckSummary(connection: GitHubConnectionStatus, gitHubConfi
     };
   }
 
-  if (connection.status === "connected") {
+  if (connection.status === "connected" && connection.userAuthorizationStatus === "authorized") {
     return {
       status: "passed" as const,
       summary: connection.ownerLogin
         ? `Connected to ${connection.ownerLogin}.`
         : "GitHub is connected.",
-      details: connection.repositorySelection === "selected"
-        ? "Repository access is scoped to selected repositories."
-        : "Repository access is broader than selected repositories.",
+      details:
+        `${connection.repositorySelection === "selected"
+          ? "Repository access is scoped to selected repositories."
+          : "Repository access is broader than selected repositories."} ${
+          connection.githubUserLogin ? `Authorized user: ${connection.githubUserLogin}.` : ""
+        }`.trim(),
     };
   }
 
@@ -46,7 +88,26 @@ function buildGitHubCheckSummary(connection: GitHubConnectionStatus, gitHubConfi
     return {
       status: "warning" as const,
       summary: "GitHub connection is still pending.",
-      details: "Finish the GitHub App install flow and reconnect if needed.",
+      details:
+        connection.userAuthorizationStatus === "awaiting_authorization"
+          ? "Finish the GitHub user authorization flow in the GitHub popup."
+          : "Finish the GitHub App install flow and reconnect if needed.",
+    };
+  }
+
+  if (connection.userAuthorizationStatus === "awaiting_authorization") {
+    return {
+      status: "warning" as const,
+      summary: "GitHub installation completed, but user authorization is still pending.",
+      details: "Return to the GitHub popup and finish the authorization step.",
+    };
+  }
+
+  if (connection.userAuthorizationStatus === "expired") {
+    return {
+      status: "failed" as const,
+      summary: "GitHub user authorization has expired.",
+      details: "Reconnect GitHub to refresh the stored user authorization.",
     };
   }
 
@@ -69,12 +130,20 @@ export class ConfigStatusService {
         config.gitHubAppName?.trim() &&
         config.gitHubAppPrivateKey?.trim(),
     );
-    const gitHubConnection =
-      (await this.store.getGitHubConnectionByTenant(installation.tenantId)) ?? ({
-        status: "disconnected",
-      } satisfies GitHubConnectionStatus);
+    const gitHubUserAuthConfigured = Boolean(
+      config.gitHubAppClientId?.trim() &&
+        config.gitHubAppClientSecret?.trim() &&
+        config.gitHubTokenEncryptionKey?.trim(),
+    );
+    const gitHubConnection = normalizeGitHubConnection(
+      await this.store.getGitHubConnectionByTenant(installation.tenantId),
+      await this.store.getGitHubUserAuthByTenant(installation.tenantId),
+    );
 
-    const gitHubCheck = buildGitHubCheckSummary(gitHubConnection, gitHubConfigured);
+    const gitHubCheck = buildGitHubCheckSummary(
+      gitHubConnection,
+      gitHubConfigured && gitHubUserAuthConfigured,
+    );
     const previewTargetConfigured = hasValue(installation.previewTarget);
     const productionTargetConfigured = hasValue(installation.productionTarget);
 
@@ -93,7 +162,11 @@ export class ConfigStatusService {
         label: "GitHub",
         status: gitHubCheck.status,
         summary: gitHubCheck.summary,
-        details: gitHubCheck.details,
+        details: !gitHubConfigured
+          ? "Set GITHUB_APP_ID, GITHUB_APP_NAME, and GITHUB_APP_PRIVATE_KEY on the backend."
+          : !gitHubUserAuthConfigured
+            ? "Set GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, and GITHUB_TOKEN_ENCRYPTION_KEY on the backend."
+            : gitHubCheck.details,
       },
       {
         key: "openai",
@@ -135,6 +208,7 @@ export class ConfigStatusService {
         storage: config.databaseUrl ? "postgres" : "memory",
         openAiConfigured: config.openAiApiKeyConfigured,
         githubConfigured: gitHubConfigured,
+        githubUserAuthConfigured: gitHubUserAuthConfigured,
         runnerCapabilities: {
           interactiveSessions: this.runner.getCapabilities().supportsInteractiveSessions,
           batchRuns: this.runner.getCapabilities().supportsBatchRuns,

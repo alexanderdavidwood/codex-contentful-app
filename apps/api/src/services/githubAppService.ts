@@ -1,4 +1,4 @@
-import { createSign, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import type {
   GitHubConnectSession,
@@ -10,15 +10,21 @@ import type {
 
 import { config } from "../config.js";
 import type { Store } from "../storage/store.js";
+import { GitHubAppAuthService } from "./githubAppAuthService.js";
+import { GitHubUserAuthService } from "./githubUserAuthService.js";
 
-type GitHubInstallationResponse = {
-  account?: {
-    login?: string;
-    type?: "Organization" | "User";
-  };
-  html_url?: string;
-  repository_selection?: "selected" | "all";
-};
+type SetupRedirectResult =
+  | {
+      type: "redirect";
+      redirectUrl: string;
+      session: GitHubConnectSession;
+    }
+  | {
+      type: "failed";
+      title: string;
+      message: string;
+      session?: GitHubConnectSession;
+    };
 
 type CallbackResult =
   | {
@@ -33,14 +39,6 @@ type CallbackResult =
       session?: GitHubConnectSession;
     };
 
-function toBase64Url(input: string | Buffer) {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
 function nowIso() {
   return new Date().toISOString();
 }
@@ -49,15 +47,23 @@ function asDate(value: string) {
   return new Date(value).getTime();
 }
 
+function getAuthMode(ownerType: "Organization" | "User" | undefined) {
+  return ownerType === "Organization" ? "installation" : "user";
+}
+
 export class GitHubAppService {
-  constructor(private readonly store: Store) {}
+  constructor(
+    private readonly store: Store,
+    private readonly appAuthService: GitHubAppAuthService,
+    private readonly userAuthService: GitHubUserAuthService,
+  ) {}
 
   isConfigured() {
-    return Boolean(
-      config.gitHubAppId?.trim() &&
-        config.gitHubAppName?.trim() &&
-        config.gitHubAppPrivateKey?.trim(),
-    );
+    return this.appAuthService.isConfigured();
+  }
+
+  isUserAuthConfigured() {
+    return this.userAuthService.isConfigured();
   }
 
   async createConnectSession(request: GitHubConnectSessionRequest): Promise<GitHubConnectSessionResponse> {
@@ -65,14 +71,22 @@ export class GitHubAppService {
       throw new Error("GitHub App is not configured on the backend.");
     }
 
+    if (!this.isUserAuthConfigured()) {
+      throw new Error("GitHub user authorization is not configured on the backend.");
+    }
+
     const createdAt = nowIso();
     const expiresAt = new Date(Date.now() + config.gitHubConnectSessionTtlMs).toISOString();
+    const pkceVerifier = this.userAuthService.createPkceVerifier();
     const session: GitHubConnectSession = {
       id: randomUUID(),
       tenantId: request.tenantId,
       contentfulContext: request.contentfulContext,
       status: "pending",
-      stateNonce: randomUUID(),
+      authorizationStatus: "awaiting_installation",
+      installState: randomUUID(),
+      oauthState: randomUUID(),
+      pkceVerifier,
       returnUrl: request.returnUrl,
       createdAt,
       updatedAt: createdAt,
@@ -83,7 +97,7 @@ export class GitHubAppService {
 
     return {
       sessionId: session.id,
-      connectUrl: `${config.gitHubAppBaseUrl}/apps/${config.gitHubAppName}/installations/new?state=${encodeURIComponent(session.stateNonce)}`,
+      connectUrl: `${config.gitHubAppBaseUrl}/apps/${config.gitHubAppName}/installations/new?state=${encodeURIComponent(session.installState)}`,
       expiresAt,
     };
   }
@@ -98,6 +112,7 @@ export class GitHubAppService {
       const expiredSession: GitHubConnectSession = {
         ...session,
         status: "expired",
+        authorizationStatus: "error",
         updatedAt: nowIso(),
         errorCode: "session_expired",
         errorMessage: "The GitHub connection session expired before completion.",
@@ -106,6 +121,7 @@ export class GitHubAppService {
       return {
         sessionId,
         status: "expired",
+        authorizationStatus: expiredSession.authorizationStatus,
         errorCode: expiredSession.errorCode,
         errorMessage: expiredSession.errorMessage,
       };
@@ -113,50 +129,62 @@ export class GitHubAppService {
 
     const connection =
       session.status === "connected"
-        ? await this.store.getGitHubConnectionByTenant(session.tenantId)
-        : null;
+        ? await this.getConnectionStatus(session.tenantId)
+        : undefined;
 
     return {
       sessionId,
       status: session.status,
-      connection: connection ?? undefined,
+      authorizationStatus: session.authorizationStatus,
+      connection,
       errorCode: session.errorCode,
       errorMessage: session.errorMessage,
     };
   }
 
   async getConnectionStatus(tenantId: string): Promise<GitHubConnectionStatus> {
-    return (await this.store.getGitHubConnectionByTenant(tenantId)) ?? {
-      status: "disconnected",
-    };
+    const connection = await this.store.getGitHubConnectionByTenant(tenantId);
+    const userAuth = await this.store.getGitHubUserAuthByTenant(tenantId);
+    const merged = this.userAuthService.mergeConnectionWithUserAuth(connection, userAuth);
+
+    if (!merged.authMode && merged.ownerType) {
+      return {
+        ...merged,
+        authMode: getAuthMode(merged.ownerType),
+      };
+    }
+
+    return merged;
   }
 
   async disconnect(tenantId: string): Promise<GitHubConnectionStatus> {
     await this.store.clearGitHubConnection(tenantId);
+    await this.store.clearGitHubUserAuth(tenantId);
     return {
       status: "disconnected",
+      userAuthorizationStatus: "missing",
     };
   }
 
-  async handleCallback(params: {
+  async handleSetupRedirect(params: {
     installationId?: string;
     setupAction?: string;
     state?: string;
-  }): Promise<CallbackResult> {
+  }): Promise<SetupRedirectResult> {
     if (!params.state) {
       return {
         type: "failed",
         title: "GitHub connection failed",
-        message: "Missing GitHub connection state.",
+        message: "Missing GitHub installation state.",
       };
     }
 
-    const session = await this.store.getGitHubConnectSessionByState(params.state);
+    const session = await this.store.getGitHubConnectSessionByInstallState(params.state);
     if (!session) {
       return {
         type: "failed",
         title: "GitHub connection failed",
-        message: "The GitHub connection session could not be found or has expired.",
+        message: "The GitHub installation session could not be found or has expired.",
       };
     }
 
@@ -164,15 +192,16 @@ export class GitHubAppService {
       const expiredSession: GitHubConnectSession = {
         ...session,
         status: "expired",
+        authorizationStatus: "error",
         updatedAt: nowIso(),
         errorCode: "session_expired",
-        errorMessage: "The GitHub connection session expired before completion.",
+        errorMessage: "The GitHub connection session expired before installation completed.",
       };
       await this.store.updateGitHubConnectSession(expiredSession);
       return {
         type: "failed",
         title: "GitHub connection expired",
-        message: expiredSession.errorMessage ?? "The GitHub connection session expired before completion.",
+        message: expiredSession.errorMessage ?? "The GitHub connection session expired before installation completed.",
         session: expiredSession,
       };
     }
@@ -181,37 +210,168 @@ export class GitHubAppService {
       const failedSession: GitHubConnectSession = {
         ...session,
         status: "failed",
+        authorizationStatus: "error",
         updatedAt: nowIso(),
         errorCode: "missing_installation_id",
-        errorMessage: "GitHub did not return an installation ID.",
+        errorMessage: "GitHub did not return an installation ID from the setup redirect.",
       };
       await this.store.updateGitHubConnectSession(failedSession);
       return {
         type: "failed",
         title: "GitHub connection failed",
-        message: failedSession.errorMessage ?? "GitHub did not return an installation ID.",
+        message: failedSession.errorMessage ?? "GitHub did not return an installation ID from the setup redirect.",
+        session: failedSession,
+      };
+    }
+
+    const updatedSession: GitHubConnectSession = {
+      ...session,
+      updatedAt: nowIso(),
+      pendingInstallationId: params.installationId,
+      authorizationStatus: "awaiting_authorization",
+      errorCode: undefined,
+      errorMessage: undefined,
+    };
+    await this.store.updateGitHubConnectSession(updatedSession);
+
+    const redirectUrl = this.userAuthService.buildAuthorizationUrl(
+      updatedSession.oauthState,
+      `${config.defaultApiBaseUrl}/v1/oauth/github/callback`,
+      this.userAuthService.createPkceChallenge(updatedSession.pkceVerifier),
+    );
+
+    return {
+      type: "redirect",
+      redirectUrl,
+      session: updatedSession,
+    };
+  }
+
+  async handleOAuthCallback(params: {
+    code?: string;
+    state?: string;
+  }): Promise<CallbackResult> {
+    if (!params.state) {
+      return {
+        type: "failed",
+        title: "GitHub authorization failed",
+        message: "Missing GitHub authorization state.",
+      };
+    }
+
+    const session = await this.store.getGitHubConnectSessionByOauthState(params.state);
+    if (!session) {
+      return {
+        type: "failed",
+        title: "GitHub authorization failed",
+        message: "The GitHub authorization session could not be found or has expired.",
+      };
+    }
+
+    if (asDate(session.expiresAt) <= Date.now()) {
+      const expiredSession: GitHubConnectSession = {
+        ...session,
+        status: "expired",
+        authorizationStatus: "error",
+        updatedAt: nowIso(),
+        errorCode: "session_expired",
+        errorMessage: "The GitHub connection session expired before authorization completed.",
+      };
+      await this.store.updateGitHubConnectSession(expiredSession);
+      return {
+        type: "failed",
+        title: "GitHub connection expired",
+        message: expiredSession.errorMessage ?? "The GitHub connection session expired before authorization completed.",
+        session: expiredSession,
+      };
+    }
+
+    if (!params.code) {
+      const failedSession: GitHubConnectSession = {
+        ...session,
+        status: "failed",
+        authorizationStatus: "error",
+        updatedAt: nowIso(),
+        errorCode: "missing_oauth_code",
+        errorMessage: "GitHub did not return an authorization code.",
+      };
+      await this.store.updateGitHubConnectSession(failedSession);
+      return {
+        type: "failed",
+        title: "GitHub authorization failed",
+        message: failedSession.errorMessage ?? "GitHub did not return an authorization code.",
+        session: failedSession,
+      };
+    }
+
+    if (!session.pendingInstallationId) {
+      const failedSession: GitHubConnectSession = {
+        ...session,
+        status: "failed",
+        authorizationStatus: "error",
+        updatedAt: nowIso(),
+        errorCode: "missing_pending_installation",
+        errorMessage: "GitHub installation details are missing from the setup flow.",
+      };
+      await this.store.updateGitHubConnectSession(failedSession);
+      return {
+        type: "failed",
+        title: "GitHub authorization failed",
+        message: failedSession.errorMessage ?? "GitHub installation details are missing from the setup flow.",
         session: failedSession,
       };
     }
 
     try {
-      const installation = await this.fetchInstallation(params.installationId);
+      const tokenResponse = await this.userAuthService.exchangeCodeForUserToken(
+        params.code,
+        `${config.defaultApiBaseUrl}/v1/oauth/github/callback`,
+        session.pkceVerifier,
+      );
+      const githubUser = await this.userAuthService.getAuthenticatedUser(tokenResponse.accessToken);
+      const installationIds = await this.userAuthService.listUserInstallationIds(tokenResponse.accessToken);
+
+      if (!installationIds.includes(session.pendingInstallationId)) {
+        throw new Error("The authorized GitHub user does not have access to the installed GitHub App.");
+      }
+
+      const installation = await this.appAuthService.getInstallation(session.pendingInstallationId);
+      await this.userAuthService.persistUserAuth({
+        tenantId: session.tenantId,
+        installationId: session.pendingInstallationId,
+        githubUserId: `${githubUser.id}`,
+        githubUserLogin: githubUser.login,
+        accessToken: tokenResponse.accessToken,
+        accessTokenExpiresAt: tokenResponse.accessTokenExpiresAt,
+        refreshToken: tokenResponse.refreshToken,
+        refreshTokenExpiresAt: tokenResponse.refreshTokenExpiresAt,
+      });
+
       const connection: GitHubConnectionStatus = {
         status: "connected",
-        installationId: params.installationId,
+        installationId: session.pendingInstallationId,
+        installationUrl: installation.html_url,
         ownerLogin: installation.account?.login,
         ownerType: installation.account?.type,
         repositorySelection: installation.repository_selection ?? "selected",
         connectedAt: nowIso(),
+        authMode: getAuthMode(installation.account?.type),
+        githubUserId: `${githubUser.id}`,
+        githubUserLogin: githubUser.login,
+        userAuthorizationStatus: "authorized",
+        tokenExpiresAt: tokenResponse.accessTokenExpiresAt,
       };
 
       const updatedSession: GitHubConnectSession = {
         ...session,
         status: "connected",
+        authorizationStatus: "authorized",
         updatedAt: nowIso(),
-        installationId: params.installationId,
+        installationId: session.pendingInstallationId,
         ownerLogin: installation.account?.login,
         ownerType: installation.account?.type,
+        githubUserId: `${githubUser.id}`,
+        githubUserLogin: githubUser.login,
         errorCode: undefined,
         errorMessage: undefined,
       };
@@ -228,58 +388,18 @@ export class GitHubAppService {
       const failedSession: GitHubConnectSession = {
         ...session,
         status: "failed",
+        authorizationStatus: "error",
         updatedAt: nowIso(),
-        installationId: params.installationId,
-        errorCode: "github_installation_lookup_failed",
-        errorMessage: error instanceof Error ? error.message : "GitHub installation lookup failed.",
+        errorCode: "github_authorization_failed",
+        errorMessage: error instanceof Error ? error.message : "GitHub authorization failed.",
       };
       await this.store.updateGitHubConnectSession(failedSession);
       return {
         type: "failed",
-        title: "GitHub connection failed",
-        message: failedSession.errorMessage ?? "GitHub installation lookup failed.",
+        title: "GitHub authorization failed",
+        message: failedSession.errorMessage ?? "GitHub authorization failed.",
         session: failedSession,
       };
     }
-  }
-
-  private createAppJwt() {
-    if (!this.isConfigured()) {
-      throw new Error("GitHub App is not configured on the backend.");
-    }
-
-    const issuedAt = Math.floor(Date.now() / 1000) - 60;
-    const expiresAt = issuedAt + 10 * 60;
-    const header = toBase64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-    const payload = toBase64Url(
-      JSON.stringify({
-        iat: issuedAt,
-        exp: expiresAt,
-        iss: config.gitHubAppId,
-      }),
-    );
-    const signer = createSign("RSA-SHA256");
-    signer.update(`${header}.${payload}`);
-    signer.end();
-    const signature = signer.sign(config.gitHubAppPrivateKey ?? "");
-    return `${header}.${payload}.${toBase64Url(signature)}`;
-  }
-
-  private async fetchInstallation(installationId: string): Promise<GitHubInstallationResponse> {
-    const token = this.createAppJwt();
-    const response = await fetch(`${config.gitHubApiBaseUrl}/app/installations/${installationId}`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "User-Agent": "codex-contentful-builder",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`GitHub installation lookup failed with ${response.status}.`);
-    }
-
-    return (await response.json()) as GitHubInstallationResponse;
   }
 }

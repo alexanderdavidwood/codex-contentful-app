@@ -76,17 +76,31 @@ npm run upload:app
 2. In the `ConfigScreen`, work through the setup cards in this order:
    - `API base URL` to the public URL of the Render API service
    - click `Check backend connection`
-   - click `Connect GitHub` and complete the GitHub App installation
+   - click `Install and authorize GitHub`
+   - complete the GitHub App installation
+   - if testing organization repos, choose the target organization here
+   - if testing personal repos, choose the personal account that should own repos
+   - complete the GitHub user authorization step in the same popup
    - optionally add an OpenAI secret reference for operator bookkeeping
    - confirm `Preview target` and `Production target`
    - expand `Advanced settings` only if you need tenant or recovery controls
 3. Use the right-hand setup status rail to confirm the builder is `Ready`.
 4. Save the installation.
 
+What success looks like in the GitHub card:
+
+- connection status is `Connected`
+- owner login is shown
+- owner type is `Organization` or `User`
+- authorized GitHub user is shown
+- auth mode is:
+  - `installation` for organizations
+  - `user` for personal accounts
+
 The config screen now allows partial save, but the page location stays blocked until:
 
 - backend checks pass
-- GitHub is connected
+- GitHub is connected and authorized
 - the backend reports `OPENAI_API_KEY`
 - preview and production targets are set
 
