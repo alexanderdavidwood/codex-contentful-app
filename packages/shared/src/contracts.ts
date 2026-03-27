@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+const optionalNonEmptyStringSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") {
+      return value;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  },
+  z.string().min(1).optional(),
+);
+
 export const supportedSurfaceSchema = z.enum([
   "ConfigScreen",
   "Page",
@@ -49,18 +61,18 @@ export type ManagedProjectManifest = z.infer<typeof managedProjectManifestSchema
 
 export const tenantInstallationConfigSchema = z.object({
   tenantId: z.string().min(1),
-  githubInstallationId: z.string().min(1).optional(),
-  githubOwnerLogin: z.string().min(1).optional(),
+  githubInstallationId: optionalNonEmptyStringSchema,
+  githubOwnerLogin: optionalNonEmptyStringSchema,
   githubOwnerType: z.enum(["Organization", "User"]).optional(),
   githubConnectionStatus: z.enum(["disconnected", "pending", "connected", "error"]).optional(),
   githubAuthMode: z.enum(["installation", "user"]).optional(),
-  githubUserId: z.string().min(1).optional(),
-  githubUserLogin: z.string().min(1).optional(),
+  githubUserId: optionalNonEmptyStringSchema,
+  githubUserLogin: optionalNonEmptyStringSchema,
   githubUserAuthorizationStatus: z
     .enum(["missing", "awaiting_authorization", "authorized", "expired", "error"])
     .optional(),
   githubTokenExpiresAt: z.string().datetime().optional(),
-  openAiSecretRef: z.string().min(1).optional(),
+  openAiSecretRef: optionalNonEmptyStringSchema,
   previewTarget: z.string().min(1),
   productionTarget: z.string().min(1),
   policyProfileId: z.string().min(1),

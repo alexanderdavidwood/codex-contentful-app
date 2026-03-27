@@ -10,22 +10,64 @@ import type {
   BuilderInstallationParameters,
   BuilderProjectDetail,
 } from "./types.js";
+import {
+  recordRequestDiagnostic,
+  toRequestBodyPreview,
+  toResponseBodyPreview,
+} from "./requestDiagnostics.js";
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+  const startedAt = new Date();
+  const headers = {
+    "Content-Type": "application/json",
+    ...(init?.headers ?? {}),
+  };
+  const method = init?.method ?? "GET";
+  const requestBodyPreview = toRequestBodyPreview(init?.body);
+  const diagnosticBase = {
+    id: `${startedAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    startedAt: startedAt.toISOString(),
+    method,
+    url,
+    origin: window.location.origin,
+    requestHeaders: Object.fromEntries(
+      Object.entries(headers).map(([key, value]) => [key, String(value)]),
+    ),
+    requestBodyPreview,
+  };
 
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      headers,
+    });
+
+    const responseText = await response.text();
+
+    recordRequestDiagnostic({
+      ...diagnosticBase,
+      completedAt: new Date().toISOString(),
+      status: response.status,
+      ok: response.ok,
+      durationMs: Date.now() - startedAt.getTime(),
+      responseBodyPreview: toResponseBodyPreview(responseText),
+    });
+
+    if (!response.ok) {
+      throw new Error(responseText || `Request failed with ${response.status}`);
+    }
+
+    return JSON.parse(responseText) as T;
+  } catch (error) {
+    recordRequestDiagnostic({
+      ...diagnosticBase,
+      completedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt.getTime(),
+      errorName: error instanceof Error ? error.name : "Error",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-
-  return (await response.json()) as T;
 }
 
 export function bootstrapBuilder(installation: BuilderInstallationParameters): Promise<BuilderBootstrapResponse> {

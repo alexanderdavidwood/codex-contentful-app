@@ -29,6 +29,12 @@ import {
   DEFAULT_INSTALLATION_PARAMETERS,
   mergeInstallationParameters,
 } from "../installation.js";
+import {
+  clearRequestDiagnostics,
+  getRequestDiagnosticsReport,
+  subscribeToRequestDiagnostics,
+  type RequestDiagnosticEntry,
+} from "../requestDiagnostics.js";
 import type {
   BuilderConfigStatusResponse,
   BuilderGitHubConnectSessionStatusResponse,
@@ -213,6 +219,7 @@ export function ConfigScreen() {
   const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
   const [hasHydratedParameters, setHasHydratedParameters] = useState(false);
   const [isCompactLayout, setIsCompactLayout] = useState(() => window.innerWidth < 1080);
+  const [requestDiagnostics, setRequestDiagnostics] = useState<RequestDiagnosticEntry[]>([]);
 
   useEffect(() => {
     parametersRef.current = parameters;
@@ -232,6 +239,8 @@ export function ConfigScreen() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  useEffect(() => subscribeToRequestDiagnostics(setRequestDiagnostics), []);
 
   useEffect(() => {
     sdk.app.onConfigure(async () => {
@@ -817,6 +826,80 @@ export function ConfigScreen() {
                     {configStatus?.openai.summary ?? "Run checks to validate backend OpenAI availability."}
                   </Paragraph>
                 </Flex>
+              </Flex>
+            </Card>
+
+            <Card>
+              <Flex flexDirection="column" gap="spacingM">
+                <div>
+                  <Heading>Temporary diagnostics</Heading>
+                  <Paragraph marginBottom="spacingS">
+                    Copy this report if setup requests still fail. It includes the exact request URL, origin, method, response status, and browser fetch error seen inside the Contentful iframe.
+                  </Paragraph>
+                </div>
+
+                <Flex gap="spacingS" flexWrap="wrap">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      const report = getRequestDiagnosticsReport();
+                      void navigator.clipboard.writeText(report)
+                        .then(() => sdk.notifier.success("Diagnostics copied to clipboard."))
+                        .catch(() => sdk.notifier.error("Could not copy diagnostics to clipboard."));
+                    }}
+                  >
+                    Copy diagnostics
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      clearRequestDiagnostics();
+                      sdk.notifier.success("Diagnostics cleared.");
+                    }}
+                  >
+                    Clear diagnostics
+                  </Button>
+                </Flex>
+
+                {requestDiagnostics.length === 0 ? (
+                  <Paragraph marginBottom="none">
+                    No frontend requests have been recorded in this session yet.
+                  </Paragraph>
+                ) : (
+                  <Flex flexDirection="column" gap="spacingS">
+                    {requestDiagnostics.map((entry) => (
+                      <Box
+                        key={entry.id}
+                        padding="spacingM"
+                        style={{
+                          borderRadius: 12,
+                          border: "1px solid #d7dee8",
+                          background: "#f8fafc",
+                          fontFamily: "monospace",
+                          fontSize: 12,
+                          whiteSpace: "pre-wrap",
+                          overflowX: "auto",
+                        }}
+                      >
+                        {[
+                          `${entry.method} ${entry.url}`,
+                          `origin=${entry.origin}`,
+                          `startedAt=${entry.startedAt}`,
+                          entry.completedAt ? `completedAt=${entry.completedAt}` : undefined,
+                          entry.durationMs !== undefined ? `durationMs=${entry.durationMs}` : undefined,
+                          entry.status !== undefined ? `status=${entry.status}` : undefined,
+                          entry.ok !== undefined ? `ok=${entry.ok}` : undefined,
+                          entry.errorName ? `errorName=${entry.errorName}` : undefined,
+                          entry.errorMessage ? `errorMessage=${entry.errorMessage}` : undefined,
+                          entry.requestBodyPreview ? `requestBody=${entry.requestBodyPreview}` : undefined,
+                          entry.responseBodyPreview ? `responseBody=${entry.responseBodyPreview}` : undefined,
+                        ]
+                          .filter(Boolean)
+                          .join("\n")}
+                      </Box>
+                    ))}
+                  </Flex>
+                )}
               </Flex>
             </Card>
 

@@ -44,6 +44,32 @@ test("tenant installation config supports github connection metadata", () => {
   assert.equal(parsed.githubConnectionStatus, "connected");
 });
 
+test("tenant installation config normalizes empty optional strings", () => {
+  const parsed = tenantInstallationConfigSchema.parse({
+    tenantId: "internal-demo",
+    githubInstallationId: "",
+    githubOwnerLogin: "",
+    githubConnectionStatus: "disconnected",
+    githubUserId: "",
+    githubUserLogin: "",
+    githubUserAuthorizationStatus: "missing",
+    openAiSecretRef: "",
+    previewTarget: "contentful-preview",
+    productionTarget: "contentful-production",
+    policyProfileId: "default",
+    apiBaseUrl: "https://codex-contentful-app-api.onrender.com",
+    featureFlags: {
+      enablePreviewSync: true,
+    },
+  });
+
+  assert.equal(parsed.githubInstallationId, undefined);
+  assert.equal(parsed.githubOwnerLogin, undefined);
+  assert.equal(parsed.githubUserId, undefined);
+  assert.equal(parsed.githubUserLogin, undefined);
+  assert.equal(parsed.openAiSecretRef, undefined);
+});
+
 test("config status response schema accepts guided setup payloads", () => {
   const parsed = configStatusResponseSchema.parse({
     backend: {
