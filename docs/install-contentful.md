@@ -73,11 +73,22 @@ npm run upload:app
 ## Install the app in a space
 
 1. Install the private app into your target space and environment.
-2. In the `ConfigScreen`, set:
+2. In the `ConfigScreen`, work through the setup cards in this order:
    - `API base URL` to the public URL of the Render API service
-   - `Tenant ID` to an internal tenant label
-   - optional GitHub and OpenAI secret references if you want those values visible in the config model
-3. Save the installation.
+   - click `Check backend connection`
+   - click `Connect GitHub` and complete the GitHub App installation
+   - optionally add an OpenAI secret reference for operator bookkeeping
+   - confirm `Preview target` and `Production target`
+   - expand `Advanced settings` only if you need tenant or recovery controls
+3. Use the right-hand setup status rail to confirm the builder is `Ready`.
+4. Save the installation.
+
+The config screen now allows partial save, but the page location stays blocked until:
+
+- backend checks pass
+- GitHub is connected
+- the backend reports `OPENAI_API_KEY`
+- preview and production targets are set
 
 ## If you want to upload manually instead of using the script
 

@@ -17,25 +17,129 @@ import {
 import type { PageExtensionSDK } from "@contentful/app-sdk";
 import { useSDK } from "@contentful/react-apps-toolkit";
 
-import { bootstrapBuilder, createProject, getProjectDetail, startRun, subscribeToRun } from "../api.js";
+import {
+  bootstrapBuilder,
+  createProject,
+  getConfigStatus,
+  getProjectDetail,
+  startRun,
+  subscribeToRun,
+} from "../api.js";
+import { mergeInstallationParameters } from "../installation.js";
 import type {
+  BuilderConfigStatusResponse,
   BuilderInstallationParameters,
   BuilderProject,
   BuilderProjectDetail,
 } from "../types.js";
 
 function getInstallationParameters(sdk: PageExtensionSDK): BuilderInstallationParameters {
-  const params = (sdk.parameters.installation ?? {}) as Partial<BuilderInstallationParameters>;
-  return {
-    tenantId: params.tenantId ?? "internal-demo",
-    githubInstallationId: params.githubInstallationId ?? "",
-    openAiSecretRef: params.openAiSecretRef ?? "",
-    previewTarget: params.previewTarget ?? "contentful-preview",
-    productionTarget: params.productionTarget ?? "contentful-production",
-    policyProfileId: params.policyProfileId ?? "default",
-    apiBaseUrl: params.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787",
-    featureFlags: params.featureFlags ?? {},
-  };
+  return mergeInstallationParameters(
+    (sdk.parameters.installation ?? {}) as Partial<BuilderInstallationParameters>,
+  );
+}
+
+function getBadgeVariant(status: "passed" | "failed" | "warning" | "missing") {
+  switch (status) {
+    case "passed":
+      return "positive" as const;
+    case "warning":
+      return "warning" as const;
+    case "failed":
+      return "negative" as const;
+    default:
+      return "secondary" as const;
+  }
+}
+
+function SetupBlocker(props: {
+  setupStatus: BuilderConfigStatusResponse | null;
+  setupError: string | null;
+  isCheckingSetup: boolean;
+  onOpenConfig: () => void;
+  onRetry: () => void;
+}) {
+  const blockers = props.setupStatus?.checks.filter((check) => check.status !== "passed") ?? [];
+
+  return (
+    <Flex flexDirection="column" gap="spacingL">
+      <Box
+        padding="spacingL"
+        style={{
+          borderRadius: 18,
+          background: "linear-gradient(135deg, #102542 0%, #1d3557 55%, #457b9d 100%)",
+          color: "white",
+        }}
+      >
+        <Heading>Codex Builder Workspace</Heading>
+        <Paragraph marginBottom="spacingS">
+          This workspace is blocked until the builder configuration passes the required setup checks.
+        </Paragraph>
+        <Badge variant={props.setupStatus?.overall === "blocked" || props.setupError ? "negative" : "warning"}>
+          {props.setupStatus?.overall === "ready"
+            ? "Ready"
+            : props.setupStatus?.overall === "blocked" || props.setupError
+              ? "Blocked"
+              : "Needs setup"}
+        </Badge>
+      </Box>
+
+      <Note variant="warning" title="Complete setup first">
+        The page location will not create projects or start Codex runs until the backend, GitHub, OpenAI, and target checks all pass.
+      </Note>
+
+      <Card>
+        <Flex flexDirection="column" gap="spacingM">
+          <Heading>What needs attention</Heading>
+          {props.isCheckingSetup ? <Spinner /> : null}
+
+          {props.setupError ? (
+            <Note variant="negative" title="Setup check failed">
+              {props.setupError}
+            </Note>
+          ) : null}
+
+          {blockers.length === 0 && !props.setupError && !props.isCheckingSetup ? (
+            <Paragraph marginBottom="none">
+              No detailed blocker list is available yet. Re-run the checks or open the configuration screen.
+            </Paragraph>
+          ) : null}
+
+          {blockers.map((check) => (
+            <Box
+              key={check.key}
+              padding="spacingM"
+              style={{
+                borderRadius: 12,
+                border: "1px solid #d7dee8",
+                background: "#f8fafc",
+              }}
+            >
+              <Flex justifyContent="space-between" alignItems="flex-start" gap="spacingM">
+                <div>
+                  <Heading as="h3" marginBottom="spacing2Xs">
+                    {check.label}
+                  </Heading>
+                  <Paragraph marginBottom="spacing2Xs">{check.summary}</Paragraph>
+                  {check.details ? <Paragraph marginBottom="none">{check.details}</Paragraph> : null}
+                </div>
+                <Badge variant={getBadgeVariant(check.status)}>{check.status}</Badge>
+              </Flex>
+            </Box>
+          ))}
+
+          <Flex gap="spacingS" flexWrap="wrap">
+            <Button variant="primary" onClick={props.onOpenConfig}>
+              Open configuration
+            </Button>
+            <Button variant="secondary" onClick={props.onRetry} isDisabled={props.isCheckingSetup}>
+              Re-run checks
+            </Button>
+          </Flex>
+        </Flex>
+      </Card>
+    </Flex>
+  );
 }
 
 export function Page() {
@@ -50,8 +154,47 @@ export function Page() {
   const [prompt, setPrompt] = useState("Create a sidebar experience that summarizes entry metadata and surfaces a preview call-to-action.");
   const [runLog, setRunLog] = useState<string[]>([]);
   const [activeRunId, setActiveRunId] = useState<string>("");
+  const [setupStatus, setSetupStatus] = useState<BuilderConfigStatusResponse | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [isCheckingSetup, setIsCheckingSetup] = useState(true);
+
+  async function refreshSetupStatus(options?: { notify?: boolean }) {
+    setIsCheckingSetup(true);
+    setSetupError(null);
+
+    try {
+      const nextStatus = await getConfigStatus(installation);
+      setSetupStatus(nextStatus);
+      if (options?.notify) {
+        sdk.notifier.success("Setup checks completed.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Setup checks failed.";
+      setSetupStatus(null);
+      setSetupError(message);
+      if (options?.notify) {
+        sdk.notifier.error(message);
+      }
+    } finally {
+      setIsCheckingSetup(false);
+    }
+  }
+
+  const isSetupReady = setupStatus?.overall === "ready";
 
   useEffect(() => {
+    void refreshSetupStatus();
+  }, [installation.apiBaseUrl, installation.githubInstallationId, installation.previewTarget, installation.productionTarget, installation.tenantId]);
+
+  useEffect(() => {
+    if (!isSetupReady) {
+      setProjects([]);
+      setSelectedProjectId("");
+      setProjectDetail(null);
+      setIsLoading(false);
+      return;
+    }
+
     let isMounted = true;
     setIsLoading(true);
     bootstrapBuilder(installation)
@@ -72,9 +215,13 @@ export function Page() {
     return () => {
       isMounted = false;
     };
-  }, [installation, sdk]);
+  }, [installation, isSetupReady, sdk]);
 
   useEffect(() => {
+    if (!isSetupReady) {
+      return;
+    }
+
     if (!selectedProjectId) {
       setProjectDetail(null);
       return;
@@ -83,9 +230,13 @@ export function Page() {
     getProjectDetail(installation, selectedProjectId)
       .then(setProjectDetail)
       .catch((error: Error) => sdk.notifier.error(error.message));
-  }, [installation, sdk, selectedProjectId]);
+  }, [installation, isSetupReady, sdk, selectedProjectId]);
 
   useEffect(() => {
+    if (!isSetupReady) {
+      return;
+    }
+
     if (!activeRunId) {
       return;
     }
@@ -98,7 +249,7 @@ export function Page() {
     });
 
     return unsubscribe;
-  }, [activeRunId, installation, selectedProjectId]);
+  }, [activeRunId, installation, isSetupReady, selectedProjectId]);
 
   async function handleCreateProject() {
     const project = await createProject(installation, {
@@ -123,6 +274,22 @@ export function Page() {
     const response = await startRun(installation, selectedProjectId, prompt);
     setActiveRunId(response.runId);
     sdk.notifier.success("Codex run started.");
+  }
+
+  if (isCheckingSetup || !isSetupReady) {
+    return (
+      <SetupBlocker
+        setupStatus={setupStatus}
+        setupError={setupError}
+        isCheckingSetup={isCheckingSetup}
+        onOpenConfig={() => {
+          void sdk.navigator.openAppConfig();
+        }}
+        onRetry={() => {
+          void refreshSetupStatus({ notify: true });
+        }}
+      />
+    );
   }
 
   return (

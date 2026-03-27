@@ -1,4 +1,6 @@
 import type {
+  GitHubConnectSession,
+  GitHubConnectionStatus,
   ProjectRecord,
   RunRecord,
   TenantInstallationConfig,
@@ -8,6 +10,8 @@ import type { Store } from "./store.js";
 
 export class MemoryStore implements Store {
   private readonly installations = new Map<string, TenantInstallationConfig>();
+  private readonly gitHubConnections = new Map<string, GitHubConnectionStatus>();
+  private readonly gitHubConnectSessions = new Map<string, GitHubConnectSession>();
   private readonly projects = new Map<string, { tenantId: string; project: ProjectRecord }>();
   private readonly runs = new Map<string, RunRecord>();
 
@@ -52,5 +56,33 @@ export class MemoryStore implements Store {
 
   async getRun(runId: string): Promise<RunRecord | null> {
     return this.runs.get(runId) ?? null;
+  }
+
+  async createGitHubConnectSession(session: GitHubConnectSession): Promise<void> {
+    this.gitHubConnectSessions.set(session.id, session);
+  }
+
+  async getGitHubConnectSession(sessionId: string): Promise<GitHubConnectSession | null> {
+    return this.gitHubConnectSessions.get(sessionId) ?? null;
+  }
+
+  async getGitHubConnectSessionByState(stateNonce: string): Promise<GitHubConnectSession | null> {
+    return Array.from(this.gitHubConnectSessions.values()).find((session) => session.stateNonce === stateNonce) ?? null;
+  }
+
+  async updateGitHubConnectSession(session: GitHubConnectSession): Promise<void> {
+    this.gitHubConnectSessions.set(session.id, session);
+  }
+
+  async getGitHubConnectionByTenant(tenantId: string): Promise<GitHubConnectionStatus | null> {
+    return this.gitHubConnections.get(tenantId) ?? null;
+  }
+
+  async upsertGitHubConnection(tenantId: string, connection: GitHubConnectionStatus): Promise<void> {
+    this.gitHubConnections.set(tenantId, connection);
+  }
+
+  async clearGitHubConnection(tenantId: string): Promise<void> {
+    this.gitHubConnections.delete(tenantId);
   }
 }

@@ -1,4 +1,6 @@
 import type {
+  GitHubConnectSession,
+  GitHubConnectionStatus,
   ProjectRecord,
   RunRecord,
   TenantInstallationConfig,
@@ -26,6 +28,18 @@ export class PostgresStore implements Store {
       create table if not exists runs (
         id text primary key,
         project_id text not null,
+        payload jsonb not null
+      );
+
+      create table if not exists github_connect_sessions (
+        id text primary key,
+        state_nonce text not null unique,
+        tenant_id text not null,
+        payload jsonb not null
+      );
+
+      create table if not exists github_connections (
+        tenant_id text primary key,
         payload jsonb not null
       );
     `);
@@ -98,5 +112,61 @@ export class PostgresStore implements Store {
       [runId],
     );
     return (result.rows[0]?.payload as RunRecord | undefined) ?? null;
+  }
+
+  async createGitHubConnectSession(session: GitHubConnectSession): Promise<void> {
+    await this.pool.query(
+      `
+        insert into github_connect_sessions (id, state_nonce, tenant_id, payload)
+        values ($1, $2, $3, $4::jsonb)
+      `,
+      [session.id, session.stateNonce, session.tenantId, JSON.stringify(session)],
+    );
+  }
+
+  async getGitHubConnectSession(sessionId: string): Promise<GitHubConnectSession | null> {
+    const result = await this.pool.query<{ payload: GitHubConnectSession }>(
+      "select payload from github_connect_sessions where id = $1",
+      [sessionId],
+    );
+    return (result.rows[0]?.payload as GitHubConnectSession | undefined) ?? null;
+  }
+
+  async getGitHubConnectSessionByState(stateNonce: string): Promise<GitHubConnectSession | null> {
+    const result = await this.pool.query<{ payload: GitHubConnectSession }>(
+      "select payload from github_connect_sessions where state_nonce = $1",
+      [stateNonce],
+    );
+    return (result.rows[0]?.payload as GitHubConnectSession | undefined) ?? null;
+  }
+
+  async updateGitHubConnectSession(session: GitHubConnectSession): Promise<void> {
+    await this.pool.query(
+      "update github_connect_sessions set state_nonce = $2, tenant_id = $3, payload = $4::jsonb where id = $1",
+      [session.id, session.stateNonce, session.tenantId, JSON.stringify(session)],
+    );
+  }
+
+  async getGitHubConnectionByTenant(tenantId: string): Promise<GitHubConnectionStatus | null> {
+    const result = await this.pool.query<{ payload: GitHubConnectionStatus }>(
+      "select payload from github_connections where tenant_id = $1",
+      [tenantId],
+    );
+    return (result.rows[0]?.payload as GitHubConnectionStatus | undefined) ?? null;
+  }
+
+  async upsertGitHubConnection(tenantId: string, connection: GitHubConnectionStatus): Promise<void> {
+    await this.pool.query(
+      `
+        insert into github_connections (tenant_id, payload)
+        values ($1, $2::jsonb)
+        on conflict (tenant_id) do update set payload = excluded.payload
+      `,
+      [tenantId, JSON.stringify(connection)],
+    );
+  }
+
+  async clearGitHubConnection(tenantId: string): Promise<void> {
+    await this.pool.query("delete from github_connections where tenant_id = $1", [tenantId]);
   }
 }

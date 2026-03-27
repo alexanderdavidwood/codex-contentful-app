@@ -44,6 +44,9 @@ The blueprint explicitly disables Render preview environments because Hobby work
 ### Required
 
 - `OPENAI_API_KEY`
+- `GITHUB_APP_ID`
+- `GITHUB_APP_NAME`
+- `GITHUB_APP_PRIVATE_KEY`
 
 ### Optional
 
@@ -52,11 +55,28 @@ The blueprint explicitly disables Render preview environments because Hobby work
 - `CORS_ORIGIN`
   - leave empty for the MVP to allow all origins
   - tighten later to your Contentful and static-site origins
+- `GITHUB_CONNECT_SESSION_TTL_MS`
+  - defaults to 10 minutes
+- `GITHUB_APP_BASE_URL`
+  - defaults to `https://github.com`
+- `GITHUB_API_BASE_URL`
+  - defaults to `https://api.github.com`
+
+## GitHub App callback
+
+Set the GitHub App callback URL to:
+
+```text
+https://<your-render-api-host>/v1/oauth/github/callback
+```
+
+The config screen now starts a backend-owned GitHub connect session and opens the GitHub App install flow from Contentful. The backend then looks up the installation details and stores the connected owner against the tenant.
 
 ## Smoke test after deploy
 
 1. Visit the API `/health` endpoint.
-2. Open the static site URL and confirm it loads.
-3. Install the private app in Contentful and save the API base URL in `ConfigScreen`.
-4. Create a managed project from the `Page` location.
-5. Run a short prompt and confirm logs stream back into the UI.
+2. Upload the frontend with `npm run upload:app` or confirm your hosted bundle is current.
+3. Install the private app in Contentful and complete the `ConfigScreen` checks.
+4. Confirm the page location is unblocked.
+5. Create a managed project from the `Page` location.
+6. Run a short prompt and confirm logs stream back into the UI.

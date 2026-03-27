@@ -50,6 +50,9 @@ export type ManagedProjectManifest = z.infer<typeof managedProjectManifestSchema
 export const tenantInstallationConfigSchema = z.object({
   tenantId: z.string().min(1),
   githubInstallationId: z.string().min(1).optional(),
+  githubOwnerLogin: z.string().min(1).optional(),
+  githubOwnerType: z.enum(["Organization", "User"]).optional(),
+  githubConnectionStatus: z.enum(["disconnected", "pending", "connected", "error"]).optional(),
   openAiSecretRef: z.string().min(1).optional(),
   previewTarget: z.string().min(1),
   productionTarget: z.string().min(1),
@@ -59,6 +62,143 @@ export const tenantInstallationConfigSchema = z.object({
 });
 
 export type TenantInstallationConfig = z.infer<typeof tenantInstallationConfigSchema>;
+
+export const contentfulContextSchema = z.object({
+  organizationId: z.string().min(1),
+  appId: z.string().min(1).optional(),
+  environmentId: z.string().min(1),
+  spaceId: z.string().min(1),
+  userId: z.string().min(1),
+});
+
+export type ContentfulContext = z.infer<typeof contentfulContextSchema>;
+
+export const gitHubConnectionStatusSchema = z.object({
+  status: z.enum(["disconnected", "pending", "connected", "error"]),
+  installationId: z.string().min(1).optional(),
+  ownerLogin: z.string().min(1).optional(),
+  ownerType: z.enum(["Organization", "User"]).optional(),
+  repositorySelection: z.enum(["selected", "all"]).optional(),
+  connectedAt: z.string().datetime().optional(),
+  errorCode: z.string().min(1).optional(),
+  errorMessage: z.string().min(1).optional(),
+});
+
+export type GitHubConnectionStatus = z.infer<typeof gitHubConnectionStatusSchema>;
+
+export const gitHubConnectSessionSchema = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  contentfulContext: contentfulContextSchema,
+  status: z.enum(["pending", "connected", "failed", "expired"]),
+  stateNonce: z.string().min(1),
+  returnUrl: z.string().url(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  installationId: z.string().min(1).optional(),
+  ownerLogin: z.string().min(1).optional(),
+  ownerType: z.enum(["Organization", "User"]).optional(),
+  errorCode: z.string().min(1).optional(),
+  errorMessage: z.string().min(1).optional(),
+});
+
+export type GitHubConnectSession = z.infer<typeof gitHubConnectSessionSchema>;
+
+export const gitHubConnectSessionRequestSchema = z.object({
+  tenantId: z.string().min(1),
+  apiBaseUrl: z.string().url(),
+  contentfulContext: contentfulContextSchema,
+  returnUrl: z.string().url(),
+});
+
+export type GitHubConnectSessionRequest = z.infer<typeof gitHubConnectSessionRequestSchema>;
+
+export const gitHubConnectSessionResponseSchema = z.object({
+  sessionId: z.string().min(1),
+  connectUrl: z.string().url(),
+  expiresAt: z.string().datetime(),
+});
+
+export type GitHubConnectSessionResponse = z.infer<typeof gitHubConnectSessionResponseSchema>;
+
+export const gitHubConnectSessionStatusResponseSchema = z.object({
+  sessionId: z.string().min(1),
+  status: z.enum(["pending", "connected", "failed", "expired"]),
+  connection: gitHubConnectionStatusSchema.optional(),
+  errorCode: z.string().min(1).optional(),
+  errorMessage: z.string().min(1).optional(),
+});
+
+export type GitHubConnectSessionStatusResponse = z.infer<typeof gitHubConnectSessionStatusResponseSchema>;
+
+export const disconnectGitHubRequestSchema = z.object({
+  tenantId: z.string().min(1),
+});
+
+export type DisconnectGitHubRequest = z.infer<typeof disconnectGitHubRequestSchema>;
+
+export const configCheckKeySchema = z.enum([
+  "backend",
+  "github",
+  "openai",
+  "previewTarget",
+  "productionTarget",
+]);
+
+export const configCheckResultSchema = z.object({
+  key: configCheckKeySchema,
+  label: z.string().min(1),
+  status: z.enum(["passed", "failed", "warning", "missing"]),
+  summary: z.string().min(1),
+  details: z.string().min(1).optional(),
+});
+
+export type ConfigCheckResult = z.infer<typeof configCheckResultSchema>;
+
+export const configStatusRequestSchema = z.object({
+  installation: tenantInstallationConfigSchema,
+});
+
+export type ConfigStatusRequest = z.infer<typeof configStatusRequestSchema>;
+
+export const configStatusResponseSchema = z.object({
+  backend: z.object({
+    status: z.enum(["passed", "failed", "warning", "missing"]),
+    apiBaseUrl: z.string().url(),
+    environment: z.string().min(1).optional(),
+    storage: z.string().min(1).optional(),
+    openAiConfigured: z.boolean(),
+    githubConfigured: z.boolean(),
+    runnerCapabilities: z.object({
+      interactiveSessions: z.boolean(),
+      batchRuns: z.boolean(),
+      approvals: z.boolean(),
+      diffArtifacts: z.boolean(),
+    }),
+    summary: z.string().min(1),
+  }),
+  github: gitHubConnectionStatusSchema,
+  openai: z.object({
+    status: z.enum(["passed", "failed", "warning", "missing"]),
+    configured: z.boolean(),
+    summary: z.string().min(1),
+  }),
+  targets: z.object({
+    previewTarget: z.object({
+      status: z.enum(["passed", "missing"]),
+      summary: z.string().min(1),
+    }),
+    productionTarget: z.object({
+      status: z.enum(["passed", "missing"]),
+      summary: z.string().min(1),
+    }),
+  }),
+  checks: z.array(configCheckResultSchema),
+  overall: z.enum(["ready", "needs_setup", "blocked"]),
+});
+
+export type ConfigStatusResponse = z.infer<typeof configStatusResponseSchema>;
 
 export const codexSessionConfigSchema = z.object({
   codexVersion: z.string().min(1),

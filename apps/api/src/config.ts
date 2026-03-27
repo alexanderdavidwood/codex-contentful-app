@@ -29,6 +29,13 @@ export const config = {
   managedProjectRoot: process.env.MANAGED_PROJECT_ROOT ?? path.join(repoRoot, ".runtime/projects"),
   defaultApiBaseUrl: process.env.API_BASE_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}`,
   corsOrigins: [...new Set([...defaultBrowserOrigins, ...parseCsv(process.env.CORS_ORIGIN)])],
+  gitHubAppId: process.env.GITHUB_APP_ID,
+  gitHubAppName: process.env.GITHUB_APP_NAME,
+  gitHubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+  gitHubAppBaseUrl: process.env.GITHUB_APP_BASE_URL ?? "https://github.com",
+  gitHubApiBaseUrl: process.env.GITHUB_API_BASE_URL ?? "https://api.github.com",
+  gitHubConnectSessionTtlMs: Number(process.env.GITHUB_CONNECT_SESSION_TTL_MS ?? 10 * 60 * 1000),
+  openAiApiKeyConfigured: Boolean(process.env.OPENAI_API_KEY?.trim()),
   secretRedactionValues: [
     process.env.OPENAI_API_KEY,
     process.env.CONTENTFUL_ACCESS_TOKEN,
